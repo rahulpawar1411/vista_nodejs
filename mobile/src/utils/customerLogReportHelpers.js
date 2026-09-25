@@ -47,9 +47,14 @@ export function uploadsPathToCloudinaryUrl(raw, cloudName = 'de9ba8bpk') {
   return `https://res.cloudinary.com/${cloudName}/image/upload/crm/${match[1]}/${file}`;
 }
 
+/** Default Cloudinary cloud (production photos live here, not on Render disk). */
+const DEFAULT_CLOUDINARY_CLOUD =
+  (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME) ||
+  'de9ba8bpk';
+
 /**
  * Resolve image URL for React Native.
- * Cloudinary URLs in DB stay unchanged; map them to API /uploads/<folder>/<file>.
+ * Prefer Cloudinary CDN — Render ephemeral disk often 404s on /uploads/*.
  */
 export function resolveLogImageUrl(raw, baseUrl, folderHint = 'daily_temp_monitor_images') {
   if (raw == null) return null;
@@ -69,22 +74,52 @@ export function resolveLogImageUrl(raw, baseUrl, folderHint = 'daily_temp_monito
   }
 
   const base = String(baseUrl || '').replace(/\/$/, '');
-  if (/^https?:\/\//i.test(value)) {
-    const local = cloudinaryUrlToUploadsPath(value);
-    if (local && base) return `${base}/${local}`;
+
+  // Full Cloudinary URL → use CDN directly (do NOT rewrite to Render /uploads)
+  if (/^https?:\/\/res\.cloudinary\.com\//i.test(value)) {
     return value;
   }
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
   value = value.replace(/\\/g, '/').replace(/^\/+/, '');
+
+  // Relative uploads/… → Cloudinary public URL first
   if (value.startsWith('uploads/')) {
+    const cdn = uploadsPathToCloudinaryUrl(value, DEFAULT_CLOUDINARY_CLOUD);
+    if (cdn) return cdn;
     if (!base) return null;
     return `${base}/${value}`;
   }
-  if (!base) return null;
-  if (!value.includes('/')) return `${base}/uploads/${folderHint}/${value}`;
+
+  if (!base) {
+    const asUploads = `uploads/crm/${folderHint}/${value}`.replace(/\/+/g, '/');
+    const cdn = uploadsPathToCloudinaryUrl(
+      value.includes('/') ? `uploads/${value}` : asUploads,
+      DEFAULT_CLOUDINARY_CLOUD
+    );
+    if (cdn) return cdn;
+    return null;
+  }
+
+  if (!value.includes('/')) {
+    const relative = `uploads/crm/${folderHint}/${value}`;
+    const cdn = uploadsPathToCloudinaryUrl(relative, DEFAULT_CLOUDINARY_CLOUD);
+    if (cdn) return cdn;
+    return `${base}/uploads/${folderHint}/${value}`;
+  }
+
+  const maybeUploads = value.startsWith('crm/') ? `uploads/${value}` : value;
+  const cdn = uploadsPathToCloudinaryUrl(
+    maybeUploads.startsWith('uploads/') ? maybeUploads : `uploads/${maybeUploads}`,
+    DEFAULT_CLOUDINARY_CLOUD
+  );
+  if (cdn) return cdn;
   return `${base}/${value}`;
 }
 
-/** Ordered candidates: local /uploads first, then original Cloudinary URL. */
+/** Ordered candidates: Cloudinary first, then API /uploads fallback. */
 export function resolveLogImageUrlCandidates(raw, baseUrl, folderHint = 'daily_temp_monitor_images') {
   const out = [];
   const push = (u) => {
@@ -94,18 +129,33 @@ export function resolveLogImageUrlCandidates(raw, baseUrl, folderHint = 'daily_t
   const value = String(raw).trim();
   if (!value) return out;
 
-  const primary = resolveLogImageUrl(value, baseUrl, folderHint);
-  push(primary);
-
-  const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '');
   const base = String(baseUrl || '').replace(/\/$/, '');
-  if (normalized.startsWith('uploads/')) {
-    if (base) push(`${base}/${normalized}`);
-  } else if (/^https?:\/\/res\.cloudinary\.com\//i.test(value)) {
+  const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '');
+
+  if (/^https?:\/\/res\.cloudinary\.com\//i.test(value)) {
+    push(value);
     const local = cloudinaryUrlToUploadsPath(value);
     if (local && base) push(`${base}/${local}`);
-    push(value);
+    return out;
   }
+
+  if (/^https?:\/\//i.test(value)) {
+    push(value);
+    return out;
+  }
+
+  if (normalized.startsWith('uploads/')) {
+    push(uploadsPathToCloudinaryUrl(normalized, DEFAULT_CLOUDINARY_CLOUD));
+    if (base) push(`${base}/${normalized}`);
+  } else if (!normalized.includes('/')) {
+    const relative = `uploads/crm/${folderHint}/${normalized}`;
+    push(uploadsPathToCloudinaryUrl(relative, DEFAULT_CLOUDINARY_CLOUD));
+    if (base) push(`${base}/uploads/${folderHint}/${normalized}`);
+  } else {
+    push(resolveLogImageUrl(value, baseUrl, folderHint));
+    if (base) push(`${base}/${normalized}`);
+  }
+
   return out;
 }
 

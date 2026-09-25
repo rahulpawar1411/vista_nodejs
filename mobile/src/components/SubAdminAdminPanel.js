@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import FastTouchable from './FastTouchable';
 import SavedChangesPopup from './SavedChangesPopup';
 import { generateClientCode } from '../utils/generateClientCode';
+import { generateWarehouseCode } from '../utils/generateWarehouseCode';
 
 const TouchableOpacity = FastTouchable;
 
@@ -99,6 +100,7 @@ export default function SubAdminAdminPanel({
   });
   const [editingMasterId, setEditingMasterId] = useState(null);
   const clientCodeManualRef = useRef(false);
+  const whCodeManualRef = useRef(false);
   const [savedPopup, setSavedPopup] = useState({
     visible: false,
     title: 'Changes saved',
@@ -360,6 +362,7 @@ export default function SubAdminAdminPanel({
       warehouse_name: '',
       chamber_limit: '4'
     });
+    loadMasters();
     setDoFormOpen(true);
   };
 
@@ -373,6 +376,7 @@ export default function SubAdminAdminPanel({
       warehouse_name: op.warehouse_name || '',
       chamber_limit: String(op.chamber_limit != null ? op.chamber_limit : 4)
     });
+    loadMasters();
     setDoFormOpen(true);
   };
 
@@ -389,6 +393,18 @@ export default function SubAdminAdminPanel({
     };
     if (!payload.full_name || !payload.email || !payload.phone_no || !payload.warehouse_name) {
       Alert.alert('Missing fields', 'Name, email, phone and warehouse are required.');
+      return;
+    }
+    const whOk = activeWarehouses.some(
+      (w) =>
+        String(w.warehouse_name || '').trim().toLowerCase() ===
+        payload.warehouse_name.toLowerCase()
+    );
+    if (!whOk) {
+      Alert.alert(
+        'Select warehouse',
+        'Choose a warehouse from the Master list (tap a suggestion). Add new places under Master → Warehouses first.'
+      );
       return;
     }
     if (!editingDo && !doForm.password.trim()) {
@@ -453,14 +469,20 @@ export default function SubAdminAdminPanel({
   };
 
   const saveWarehouse = async () => {
-    const warehouse_code = whForm.warehouse_code.trim().toUpperCase();
     const warehouse_name = whForm.warehouse_name.trim();
+    const city = whForm.city.trim() || null;
+    const existingCodes = warehouses.map((w) => w.warehouse_code);
+    let warehouse_code = whForm.warehouse_code.trim().toUpperCase();
+    if (!editingMasterId) {
+      warehouse_code =
+        warehouse_code || generateWarehouseCode(warehouse_name, '', existingCodes);
+    }
     if (!warehouse_name) {
       Alert.alert('Missing fields', 'Warehouse name is required.');
       return;
     }
     if (!editingMasterId && !warehouse_code) {
-      Alert.alert('Missing fields', 'Warehouse code and name are required.');
+      Alert.alert('Missing fields', 'Warehouse code could not be generated. Enter a name.');
       return;
     }
     setMasterBusy(true);
@@ -470,11 +492,11 @@ export default function SubAdminAdminPanel({
         ? `${apiUrl}/api/masters/warehouses/${editingMasterId}`
         : `${apiUrl}/api/masters/warehouses`;
       const body = isEdit
-        ? { warehouse_name, city: whForm.city.trim() || null }
+        ? { warehouse_name, city }
         : {
             warehouse_code,
             warehouse_name,
-            city: whForm.city.trim() || null
+            city
           };
       const res = await fetch(url, {
         method: isEdit ? 'PUT' : 'POST',
@@ -485,11 +507,15 @@ export default function SubAdminAdminPanel({
       if (!res.ok) throw new Error(data.message || data.error || 'Save failed');
       setMasterFormOpen(false);
       setEditingMasterId(null);
+      whCodeManualRef.current = false;
       setWhForm({ warehouse_code: '', warehouse_name: '', city: '' });
       await loadMasters();
       showSaved(
         isEdit ? 'Warehouse updated' : 'Warehouse saved',
-        data.message || 'Warehouse was saved successfully.'
+        data.message ||
+          (isEdit
+            ? 'Warehouse was saved successfully.'
+            : `Warehouse saved as ${data?.data?.warehouse_code || warehouse_code}.`)
       );
     } catch (err) {
       Alert.alert('Error', err.message || 'Could not save warehouse.');
@@ -560,8 +586,27 @@ export default function SubAdminAdminPanel({
     }
   }, [clForm.client_name, clForm.warehouse_name, clForm.warehouse_code, masterTab, editingMasterId]);
 
+  useEffect(() => {
+    if (masterTab !== 'warehouses' || whCodeManualRef.current || editingMasterId || !masterFormOpen) {
+      return;
+    }
+    const existingCodes = warehouses.map((w) => w.warehouse_code);
+    const code = generateWarehouseCode(whForm.warehouse_name, '', existingCodes);
+    if (code !== whForm.warehouse_code) {
+      setWhForm((p) => ({ ...p, warehouse_code: code }));
+    }
+  }, [
+    whForm.warehouse_name,
+    whForm.warehouse_code,
+    masterTab,
+    editingMasterId,
+    masterFormOpen,
+    warehouses
+  ]);
+
   const openMasterAddForm = () => {
     clientCodeManualRef.current = false;
+    whCodeManualRef.current = false;
     setEditingMasterId(null);
     if (masterTab === 'clients') {
       setClForm({ client_code: '', client_name: '', warehouse_name: '', warehouse_code: '' });
@@ -579,6 +624,7 @@ export default function SubAdminAdminPanel({
     }
     setEditingMasterId(id);
     if (masterTab === 'warehouses') {
+      whCodeManualRef.current = true;
       setWhForm({
         warehouse_code: row.warehouse_code || '',
         warehouse_name: row.warehouse_name || '',
@@ -1058,31 +1104,67 @@ export default function SubAdminAdminPanel({
               </View>
             ))}
             <Text style={styles.fieldLabel}>Warehouse</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-              {activeWarehouses.map((w) => {
-                const active = doForm.warehouse_name === w.warehouse_name;
-                return (
-                  <TouchableOpacity
-                    key={String(w.id)}
-                    style={[styles.pickChip, active && styles.pickChipActive]}
-                    onPress={() =>
-                      setDoForm((p) => ({ ...p, warehouse_name: w.warehouse_name }))
-                    }
+            {activeWarehouses.length === 0 ? (
+              <Text style={styles.helpText}>
+                No warehouses in Master yet. Add one under Admin → Master → Warehouses first.
+              </Text>
+            ) : (
+              <View style={styles.whSuggestBox}>
+                <TextInput
+                  style={styles.input}
+                  value={doForm.warehouse_name}
+                  onChangeText={(t) => setDoForm((p) => ({ ...p, warehouse_name: t }))}
+                  placeholder="Type warehouse name to see suggestions"
+                  placeholderTextColor="#94a3b8"
+                  autoCapitalize="words"
+                />
+                {String(doForm.warehouse_name || '').trim().length > 0 ? (
+                  <ScrollView
+                    style={styles.whSuggestList}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
                   >
-                    <Text style={[styles.pickChipText, active && styles.pickChipTextActive]}>
-                      {w.warehouse_name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            <TextInput
-              style={styles.input}
-              value={doForm.warehouse_name}
-              onChangeText={(t) => setDoForm((p) => ({ ...p, warehouse_name: t }))}
-              placeholder="Or type warehouse name"
-              placeholderTextColor="#94a3b8"
-            />
+                    {activeWarehouses
+                      .filter((w) => {
+                        const q = String(doForm.warehouse_name || '').trim().toLowerCase();
+                        const name = String(w.warehouse_name || '').toLowerCase();
+                        const code = String(w.warehouse_code || '').toLowerCase();
+                        const exact =
+                          name === q ||
+                          String(doForm.warehouse_name || '').trim().toLowerCase() === name;
+                        // Still show match when already exact so user sees selection
+                        return name.includes(q) || code.includes(q) || exact;
+                      })
+                      .map((w) => {
+                        const active =
+                          String(doForm.warehouse_name || '').trim().toLowerCase() ===
+                          String(w.warehouse_name || '').trim().toLowerCase();
+                        return (
+                          <TouchableOpacity
+                            key={String(w.id)}
+                            style={[styles.whSuggestRow, active && styles.whSuggestRowActive]}
+                            onPress={() =>
+                              setDoForm((p) => ({ ...p, warehouse_name: w.warehouse_name }))
+                            }
+                          >
+                            <Text
+                              style={[styles.whSuggestName, active && styles.whSuggestNameActive]}
+                              numberOfLines={1}
+                            >
+                              {w.warehouse_name}
+                            </Text>
+                            {w.warehouse_code ? (
+                              <Text style={styles.whSuggestCode}>{w.warehouse_code}</Text>
+                            ) : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                  </ScrollView>
+                ) : (
+                  <Text style={styles.whSuggestHint}>Start typing — matching warehouses appear here</Text>
+                )}
+              </View>
+            )}
             <View style={styles.actionRow}>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.editBtn, { flex: 1 }]}
@@ -1133,24 +1215,15 @@ export default function SubAdminAdminPanel({
             {masterTab === 'warehouses' ? (
               <>
                 <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Code (WH-…)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={whForm.warehouse_code}
-                    onChangeText={(t) => setWhForm((p) => ({ ...p, warehouse_code: t }))}
-                    autoCapitalize="characters"
-                    placeholder="WH-01"
-                    placeholderTextColor="#94a3b8"
-                    editable={!editingMasterId}
-                  />
-                </View>
-                <View style={styles.field}>
                   <Text style={styles.fieldLabel}>Name</Text>
                   <TextInput
                     style={styles.input}
                     value={whForm.warehouse_name}
-                    onChangeText={(t) => setWhForm((p) => ({ ...p, warehouse_name: t }))}
-                    placeholder="Warehouse name"
+                    onChangeText={(t) => {
+                      whCodeManualRef.current = false;
+                      setWhForm((p) => ({ ...p, warehouse_name: t }));
+                    }}
+                    placeholder="e.g. Pune"
                     placeholderTextColor="#94a3b8"
                   />
                 </View>
@@ -1159,10 +1232,25 @@ export default function SubAdminAdminPanel({
                   <TextInput
                     style={styles.input}
                     value={whForm.city}
-                    onChangeText={(t) => setWhForm((p) => ({ ...p, city: t }))}
-                    placeholder="City"
+                    onChangeText={(t) => {
+                      setWhForm((p) => ({ ...p, city: t }));
+                    }}
+                    placeholder="City (optional)"
                     placeholderTextColor="#94a3b8"
                   />
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Code (auto)</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: '#f1f5f9', color: '#64748b' }]}
+                    value={whForm.warehouse_code}
+                    placeholder="WH-PUNE-01"
+                    placeholderTextColor="#94a3b8"
+                    editable={false}
+                  />
+                  <Text style={styles.fieldHint}>
+                    Auto from name only (WH-PUNE-01…). Typing locked.
+                  </Text>
                 </View>
               </>
             ) : (
@@ -1520,5 +1608,35 @@ const styles = StyleSheet.create({
   },
   pickChipActive: { backgroundColor: '#003580', borderColor: '#003580' },
   pickChipText: { fontSize: 11, fontWeight: '700', color: '#475569' },
-  pickChipTextActive: { color: '#fff' }
+  pickChipTextActive: { color: '#fff' },
+  helpText: { fontSize: 11, color: '#b45309', fontWeight: '600', marginBottom: 8, lineHeight: 16 },
+  whSuggestBox: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    marginBottom: 10,
+    overflow: 'hidden'
+  },
+  whSuggestList: { maxHeight: 160 },
+  whSuggestHint: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '600',
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  whSuggestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e2e8f0'
+  },
+  whSuggestRowActive: { backgroundColor: '#eff6ff' },
+  whSuggestName: { flex: 1, fontSize: 13, fontWeight: '700', color: '#0f172a', marginRight: 8 },
+  whSuggestNameActive: { color: '#003580' },
+  whSuggestCode: { fontSize: 10, fontWeight: '600', color: '#64748b' }
 });

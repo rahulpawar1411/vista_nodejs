@@ -65,6 +65,237 @@ const TouchableOpacity = FastTouchable;
 const PRODUCTION_API_URL = 'https://reeferon-crm-backend.onrender.com';
 const BOTTOM_SHEET_MAX_H = Math.round(Dimensions.get('window').height * 0.5);
 const BOTTOM_SHEET_SCROLL_H = Math.max(180, BOTTOM_SHEET_MAX_H - 130);
+const INOUT_MARKET_IN = '#0F766E';
+const INOUT_MARKET_OUT = '#C2410C';
+const SCREEN_W = Dimensions.get('window').width;
+
+/** Share-market candlestick chart — Inward / Outward side-by-side per day. */
+function InOutMarketChart({ series }) {
+  const [chartW, setChartW] = useState(Math.max(240, SCREEN_W - 64));
+  const height = 168;
+  const padT = 14;
+  const padB = 34;
+  const padL = 6;
+  const padR = 6;
+  const plotH = height - padT - padB;
+  const plotW = Math.max(40, chartW - padL - padR);
+  const n = series.length;
+  const maxY = Math.max(
+    1,
+    ...series.map((s) => Math.max(Number(s.inward) || 0, Number(s.outward) || 0))
+  );
+
+  const yAt = (v) => padT + plotH - (Math.max(0, Number(v) || 0) / maxY) * plotH;
+  const slotW = n > 0 ? plotW / n : plotW;
+  const bodyW = Math.max(4, Math.min(12, slotW * 0.28));
+  const gap = Math.max(1, Math.min(3, bodyW * 0.2));
+
+  const last = series[n - 1] || { inward: 0, outward: 0 };
+  const prev = series[n - 2] || last;
+  const lastTotal = (Number(last.inward) || 0) + (Number(last.outward) || 0);
+  const prevTotal = (Number(prev.inward) || 0) + (Number(prev.outward) || 0);
+  const delta = lastTotal - prevTotal;
+  const deltaPct =
+    prevTotal > 0 ? Math.round((delta / prevTotal) * 100) : lastTotal > 0 ? 100 : 0;
+  const up = delta >= 0;
+
+  if (!n) {
+    return <Text style={{ fontSize: 12, color: '#94a3b8' }}>No In / Out activity in this range.</Text>;
+  }
+
+  const renderCandle = (centerX, value, color, key) => {
+    const v = Math.max(0, Number(value) || 0);
+    const topY = yAt(v);
+    const baseY = padT + plotH;
+    const bodyH = Math.max(3, baseY - topY);
+    // Wick: thin line from a bit above body to base (market-style)
+    const wickTop = Math.max(padT, topY - Math.min(8, bodyH * 0.15));
+    return (
+      <View key={key} pointerEvents="none">
+        <View
+          style={{
+            position: 'absolute',
+            left: centerX - 0.75,
+            top: wickTop,
+            width: 1.5,
+            height: Math.max(1, baseY - wickTop),
+            backgroundColor: color,
+            opacity: 0.85
+          }}
+        />
+        <View
+          style={{
+            position: 'absolute',
+            left: centerX - bodyW / 2,
+            top: topY,
+            width: bodyW,
+            height: bodyH,
+            backgroundColor: color,
+            borderRadius: 2
+          }}
+        />
+      </View>
+    );
+  };
+
+  return (
+    <View>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10, marginBottom: 8 }}>
+        <Text style={{ fontSize: 26, fontWeight: '900', color: '#0f172a', letterSpacing: -0.5 }}>
+          {lastTotal}
+        </Text>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 2,
+            paddingHorizontal: 6,
+            paddingVertical: 2,
+            borderRadius: 6,
+            backgroundColor: up ? '#ccfbf1' : '#ffedd5'
+          }}
+        >
+          <Ionicons
+            name={up ? 'trending-up' : 'trending-down'}
+            size={12}
+            color={up ? INOUT_MARKET_IN : INOUT_MARKET_OUT}
+          />
+          <Text
+            style={{
+              fontSize: 11,
+              fontWeight: '800',
+              color: up ? INOUT_MARKET_IN : INOUT_MARKET_OUT
+            }}
+          >
+            {up ? '+' : ''}
+            {delta} ({up ? '+' : ''}
+            {deltaPct}%)
+          </Text>
+        </View>
+        <Text style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>vs prior day</Text>
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 14, marginBottom: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <View
+            style={{
+              width: 8,
+              height: 12,
+              borderRadius: 1,
+              backgroundColor: INOUT_MARKET_IN
+            }}
+          />
+          <Text style={{ fontSize: 11, fontWeight: '700', color: '#475569' }}>
+            In {Number(last.inward) || 0}
+          </Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <View
+            style={{
+              width: 8,
+              height: 12,
+              borderRadius: 1,
+              backgroundColor: INOUT_MARKET_OUT
+            }}
+          />
+          <Text style={{ fontSize: 11, fontWeight: '700', color: '#475569' }}>
+            Out {Number(last.outward) || 0}
+          </Text>
+        </View>
+      </View>
+
+      <View
+        style={{ height, width: '100%', position: 'relative' }}
+        onLayout={(e) => {
+          const w = Math.round(e.nativeEvent.layout.width);
+          if (w > 40 && w !== chartW) setChartW(w);
+        }}
+      >
+        {[0.25, 0.5, 0.75, 1].map((f) => (
+          <View
+            key={`g-${f}`}
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: padL,
+              right: padR,
+              top: padT + plotH * (1 - f),
+              height: StyleSheet.hairlineWidth,
+              backgroundColor: '#e2e8f0'
+            }}
+          />
+        ))}
+
+        {series.map((s, i) => {
+          const groupX = padL + slotW * i + slotW / 2;
+          const inX = groupX - bodyW / 2 - gap / 2;
+          const outX = groupX + bodyW / 2 + gap / 2;
+          return (
+            <View key={`c-${s.date}`}>
+              {renderCandle(inX, s.inward, INOUT_MARKET_IN, `in-${s.date}`)}
+              {renderCandle(outX, s.outward, INOUT_MARKET_OUT, `out-${s.date}`)}
+            </View>
+          );
+        })}
+
+        {series.map((s, i) => {
+          const x = padL + slotW * i + slotW / 2;
+          const step = n > 20 ? 4 : n > 12 ? 2 : 1;
+          const show = n <= 8 || i === 0 || i === n - 1 || i % step === 0;
+          if (!show) return null;
+          const weekLabel = s.weekday || s.label;
+          const dateBit =
+            s.subLabel
+              ? s.subLabel
+              : s.dayNum != null
+                ? String(s.dayNum)
+                : s.date && /^\d{4}-\d{2}-\d{2}$/.test(s.date)
+                  ? String(Number(s.date.slice(8, 10)))
+                  : null;
+          return (
+            <View
+              key={`lbl-${s.date}`}
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                left: x - 22,
+                bottom: 0,
+                width: 44,
+                alignItems: 'center'
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 9,
+                  fontWeight: '800',
+                  color: '#475569',
+                  textAlign: 'center'
+                }}
+                numberOfLines={1}
+              >
+                {weekLabel}
+              </Text>
+              {dateBit ? (
+                <Text
+                  style={{
+                    fontSize: 7,
+                    fontWeight: '600',
+                    color: '#94a3b8',
+                    textAlign: 'center',
+                    marginTop: 1
+                  }}
+                  numberOfLines={1}
+                >
+                  {dateBit}
+                </Text>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
 
 /**
  * Build absolute / data URI for chamber sensor photos.
@@ -228,7 +459,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
   const [showLogsChamberDropdown, setShowLogsChamberDropdown] = useState(false);
   const [showLogsClientDropdown, setShowLogsClientDropdown] = useState(false);
   const [showLogsTypeDropdown, setShowLogsTypeDropdown] = useState(false);
-  const [calendarContext, setCalendarContext] = useState('dock'); // dock | logsTemp
+  const [calendarContext, setCalendarContext] = useState('dock'); // dock | logsTemp | overview
   const [logSearch, setLogSearch] = useState('');
   const [logPage, setLogPage] = useState(1);
   const [logTotal, setLogTotal] = useState(0);
@@ -253,6 +484,25 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
   const [homeLoading, setHomeLoading] = useState(false);
   const [homeRefreshing, setHomeRefreshing] = useState(false);
   const [homeError, setHomeError] = useState('');
+  const [overviewDate, setOverviewDate] = useState(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  });
+  const [overviewShift, setOverviewShift] = useState(() =>
+    new Date().getHours() >= 16 ? 'Evening' : 'Morning'
+  );
+  const [overviewWarehouse, setOverviewWarehouse] = useState('All');
+  const [overviewClient, setOverviewClient] = useState('All');
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewError, setOverviewError] = useState('');
+  const [overviewTotals, setOverviewTotals] = useState({ tasks: 0, inward: 0, outward: 0 });
+  const [overviewSeries, setOverviewSeries] = useState([]);
+  const [overviewTaskGraph, setOverviewTaskGraph] = useState([]);
+  const [overviewInOutRange, setOverviewInOutRange] = useState('7d'); // today | 7d | 1m | 1y
+  const [showOverviewClientDropdown, setShowOverviewClientDropdown] = useState(false);
 
   const [inventoryRows, setInventoryRows] = useState([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
@@ -501,15 +751,19 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
     (items, whFilter = 'All', clFilter = 'All') => {
       return (items || []).filter((row) => {
         const rowClient = normName(row.client_name);
+        const rowClientCode = normName(
+          row.client_code || row.inward_client_code || row.outward_client_code
+        );
         const rowWh = normName(row.warehouse_name);
+        const rowWhCode = normName(row.warehouse_code);
 
-        // Strict: if customer has assigned clients, row must match one of them
+        // Strict: if customer has assigned clients, row must match name OR code
         const clientOk =
           allowedClients.length === 0
             ? true
             : allowedClients.some((c) => {
                 const token = normName(c);
-                return token && (token === rowClient || token === normName(row.client_code) || token === normName(row.inward_client_code) || token === normName(row.outward_client_code));
+                return token && (token === rowClient || token === rowClientCode);
               });
 
         const whOk =
@@ -517,26 +771,492 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
             ? true
             : allowedWarehouses.some((w) => {
                 const token = normName(w);
-                return token && (token === rowWh || token === normName(row.warehouse_code));
+                return token && (token === rowWh || token === rowWhCode);
               });
 
         // UI filter chips (must also stay inside assigned scope)
         const whFilterOk =
           whFilter === 'All' ||
-          (rowWh === normName(whFilter) &&
-            (allowedWarehouses.length === 0 ||
-              allowedWarehouses.some((w) => normName(w) === normName(whFilter))));
+          normName(whFilter) === rowWh ||
+          normName(whFilter) === rowWhCode;
         const clientFilterOk =
           clFilter === 'All' ||
-          (rowClient === normName(clFilter) &&
-            (allowedClients.length === 0 ||
-              allowedClients.some((c) => normName(c) === normName(clFilter))));
+          normName(clFilter) === rowClient ||
+          normName(clFilter) === rowClientCode;
 
         return clientOk && whOk && whFilterOk && clientFilterOk;
       });
     },
     [allowedClients, allowedWarehouses]
   );
+
+  const overviewClientOptions = useMemo(() => {
+    const base = allowedClients.length ? allowedClients : dynamicClients;
+    return ['All', ...base];
+  }, [allowedClients, dynamicClients]);
+
+  const overviewWarehouseOptions = useMemo(() => {
+    if (allowedWarehouses.length) return ['All', ...allowedWarehouses];
+    return ['All', ...dynamicWarehouses];
+  }, [allowedWarehouses, dynamicWarehouses]);
+
+  const applyOverviewDate = useCallback((ymd) => {
+    const next = String(ymd || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) return;
+    setOverviewDate(next);
+  }, []);
+
+  const loadOverview = useCallback(async () => {
+    if (!apiUrl || !token) return;
+    setOverviewLoading(true);
+    setOverviewError('');
+    try {
+      // Refresh customer scope so graph uses live Super Admin access list
+      let liveAllowedClients = allowedClients;
+      let liveAllowedWarehouses = allowedWarehouses;
+      try {
+        const meRes = await fetch(`${apiUrl}/api/auth/me`, { headers: authHeaders });
+        const meData = await meRes.json().catch(() => ({}));
+        if (meRes.ok && meData?.user) {
+          const prev = userRef.current || {};
+          const nextClients = String(meData.user.allowed_clients || '')
+            .split(',')
+            .map((c) => c.trim())
+            .filter(Boolean);
+          const nextWarehouses = String(meData.user.allowed_warehouses || '')
+            .split(',')
+            .map((w) => w.trim())
+            .filter(Boolean);
+          if (nextClients.length) liveAllowedClients = nextClients;
+          if (nextWarehouses.length) liveAllowedWarehouses = nextWarehouses;
+          const sameClients =
+            String(prev.allowed_clients || '') === String(meData.user.allowed_clients || '');
+          const sameWh =
+            String(prev.allowed_warehouses || '') === String(meData.user.allowed_warehouses || '');
+          if (!sameClients || !sameWh) {
+            onUserUpdate?.({
+              ...prev,
+              ...meData.user,
+              role: meData.user.role || prev.role
+            });
+          }
+        }
+      } catch (_) {
+        /* keep cached profile */
+      }
+
+      const day = overviewDate;
+      const shiftQs = `&shift=${encodeURIComponent(overviewShift)}`;
+      const warehouseQs =
+        overviewWarehouse && overviewWarehouse !== 'All'
+          ? `&warehouse=${encodeURIComponent(overviewWarehouse)}`
+          : '';
+      const clientQs =
+        overviewClient && overviewClient !== 'All'
+          ? `&client=${encodeURIComponent(overviewClient)}`
+          : '';
+      // Temp: selected day. In/Out candle chart: range from filter ending on selected day.
+      const rangeEnd = day;
+      let rangeStart = day;
+      let bucketMode = 'day'; // day | week | month
+      try {
+        const endDt = new Date(`${day}T12:00:00`);
+        const startDt = new Date(endDt);
+        if (overviewInOutRange === 'today') {
+          // same day
+        } else if (overviewInOutRange === '1m') {
+          startDt.setDate(startDt.getDate() - 29);
+          bucketMode = 'week';
+        } else if (overviewInOutRange === '1y') {
+          startDt.setFullYear(startDt.getFullYear() - 1);
+          startDt.setDate(1);
+          bucketMode = 'month';
+        } else {
+          // 7d default — daily candles
+          startDt.setDate(startDt.getDate() - 6);
+        }
+        const y = startDt.getFullYear();
+        const m = String(startDt.getMonth() + 1).padStart(2, '0');
+        const d = String(startDt.getDate()).padStart(2, '0');
+        rangeStart = `${y}-${m}-${d}`;
+      } catch (_) {
+        rangeStart = day;
+        bucketMode = 'day';
+      }
+      const rangeLimit =
+        overviewInOutRange === '1y' ? 10000 : overviewInOutRange === '1m' ? 5000 : 2000;
+      const dayCommon = `fromDate=${encodeURIComponent(day)}&toDate=${encodeURIComponent(day)}&page=1&limit=2000&export=1`;
+      const rangeCommon = `fromDate=${encodeURIComponent(rangeStart)}&toDate=${encodeURIComponent(rangeEnd)}&page=1&limit=${rangeLimit}&export=1`;
+
+      const [tRes, iRes, oRes] = await Promise.all([
+        fetch(`${apiUrl}/api/chamber-temp?${dayCommon}${shiftQs}${warehouseQs}${clientQs}`, {
+          headers: authHeaders
+        }),
+        fetch(`${apiUrl}/api/inward-logs?${rangeCommon}${warehouseQs}${clientQs}`, {
+          headers: authHeaders
+        }),
+        fetch(`${apiUrl}/api/outward-logs?${rangeCommon}${warehouseQs}${clientQs}`, {
+          headers: authHeaders
+        })
+      ]);
+
+      const [tData, iData, oData] = await Promise.all([
+        tRes.json().catch(() => ({})),
+        iRes.json().catch(() => ({})),
+        oRes.json().catch(() => ({}))
+      ]);
+
+      if (!tRes.ok && !iRes.ok && !oRes.ok) {
+        throw new Error(
+          tData.message || iData.message || oData.message || 'Failed to load overview'
+        );
+      }
+
+      const parseItems = (payload) => {
+        if (Array.isArray(payload?.items)) return payload.items;
+        if (Array.isArray(payload?.data)) return payload.data;
+        if (Array.isArray(payload?.rows)) return payload.rows;
+        if (Array.isArray(payload)) return payload;
+        return [];
+      };
+
+      const tokenMatch = (token, name, code) => {
+        const t = normName(token);
+        if (!t) return false;
+        return t === normName(name) || t === normName(code);
+      };
+
+      // Strict access gate using LIVE assigned clients/warehouses (name OR code)
+      const rowInAccess = (row) => {
+        const name = row.client_name;
+        const code = row.client_code || row.inward_client_code || row.outward_client_code;
+        const wh = row.warehouse_name;
+        const whCode = row.warehouse_code;
+
+        const clientOk =
+          liveAllowedClients.length === 0
+            ? true
+            : liveAllowedClients.some((c) => tokenMatch(c, name, code));
+
+        const whOk =
+          liveAllowedWarehouses.length === 0
+            ? true
+            : liveAllowedWarehouses.some((w) => tokenMatch(w, wh, whCode));
+
+        const clientFilterOk =
+          !overviewClient ||
+          overviewClient === 'All' ||
+          tokenMatch(overviewClient, name, code);
+
+        const warehouseFilterOk =
+          !overviewWarehouse ||
+          overviewWarehouse === 'All' ||
+          tokenMatch(overviewWarehouse, wh, whCode);
+
+        return clientOk && whOk && clientFilterOk && warehouseFilterOk;
+      };
+
+      const tasks = parseItems(tData)
+        .map((r) => normalizeLogRow(r, 'chambers'))
+        .filter(rowInAccess);
+      const inward = parseItems(iData)
+        .map((r) => normalizeLogRow(r, 'inward'))
+        .filter(rowInAccess);
+      const outward = parseItems(oData)
+        .map((r) => normalizeLogRow(r, 'outward'))
+        .filter(rowInAccess);
+
+      const logDayKey = (log) => {
+        const raw = String(log?.entry_date || log?.formatted_date || '').trim();
+        const m = raw.match(/(\d{4}-\d{2}-\d{2})/);
+        return m ? m[1] : null;
+      };
+
+      const MONTH_SHORT = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec'
+      ];
+      const WEEK_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+      const toYmdParts = (dt) => {
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const d = String(dt.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      };
+
+      // Monday-start week key (ISO-style)
+      const weekStartKey = (ymdOrDate) => {
+        const dt =
+          ymdOrDate instanceof Date
+            ? new Date(ymdOrDate.getTime())
+            : new Date(`${String(ymdOrDate).slice(0, 10)}T12:00:00`);
+        if (Number.isNaN(dt.getTime())) return null;
+        const dow = dt.getDay(); // 0=Sun
+        const delta = dow === 0 ? -6 : 1 - dow;
+        dt.setDate(dt.getDate() + delta);
+        return toYmdParts(dt);
+      };
+
+      const dayBuckets = [];
+      try {
+        const cursor = new Date(`${rangeStart}T12:00:00`);
+        const endCursor = new Date(`${rangeEnd}T12:00:00`);
+        if (bucketMode === 'month') {
+          const seen = new Set();
+          const c = new Date(cursor.getFullYear(), cursor.getMonth(), 1, 12);
+          const endM = new Date(endCursor.getFullYear(), endCursor.getMonth(), 1, 12);
+          while (c <= endM) {
+            const y = c.getFullYear();
+            const mi = c.getMonth();
+            const key = `${y}-${String(mi + 1).padStart(2, '0')}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              dayBuckets.push({
+                date: key,
+                label: MONTH_SHORT[mi],
+                weekday: null,
+                inward: 0,
+                outward: 0
+              });
+            }
+            c.setMonth(c.getMonth() + 1);
+          }
+        } else if (bucketMode === 'week') {
+          const seen = new Set();
+          let weekIdx = 1;
+          // Align cursor to Monday of first week containing rangeStart
+          const firstMon = weekStartKey(cursor);
+          const c = firstMon ? new Date(`${firstMon}T12:00:00`) : new Date(cursor);
+          while (c <= endCursor) {
+            const key = toYmdParts(c);
+            if (!seen.has(key)) {
+              seen.add(key);
+              const weekEnd = new Date(c);
+              weekEnd.setDate(weekEnd.getDate() + 6);
+              const endLabel = weekEnd > endCursor ? endCursor : weekEnd;
+              dayBuckets.push({
+                date: key,
+                label: `W${weekIdx}`,
+                weekday: `W${weekIdx}`,
+                dayNum: null,
+                subLabel: `${c.getDate()}–${endLabel.getDate()} ${MONTH_SHORT[endLabel.getMonth()]}`,
+                inward: 0,
+                outward: 0
+              });
+              weekIdx += 1;
+            }
+            c.setDate(c.getDate() + 7);
+          }
+        } else {
+          while (cursor <= endCursor) {
+            const y = cursor.getFullYear();
+            const m = String(cursor.getMonth() + 1).padStart(2, '0');
+            const d = String(cursor.getDate()).padStart(2, '0');
+            const dateStr = `${y}-${m}-${d}`;
+            const weekday = WEEK_SHORT[cursor.getDay()];
+            dayBuckets.push({
+              date: dateStr,
+              label: weekday,
+              weekday,
+              dayNum: Number(d),
+              inward: 0,
+              outward: 0
+            });
+            cursor.setDate(cursor.getDate() + 1);
+          }
+        }
+      } catch (_) {
+        dayBuckets.push({ date: day, label: day.slice(5), weekday: null, inward: 0, outward: 0 });
+      }
+      const bucketIndex = new Map(dayBuckets.map((b, i) => [b.date, i]));
+
+      const resolveBucketKey = (dayStr) => {
+        if (!dayStr) return null;
+        if (bucketMode === 'month') return dayStr.slice(0, 7);
+        if (bucketMode === 'week') return weekStartKey(dayStr);
+        return dayStr;
+      };
+
+      inward.forEach((log) => {
+        const k = resolveBucketKey(logDayKey(log));
+        if (k != null && bucketIndex.has(k)) dayBuckets[bucketIndex.get(k)].inward += 1;
+      });
+      outward.forEach((log) => {
+        const k = resolveBucketKey(logDayKey(log));
+        if (k != null && bucketIndex.has(k)) dayBuckets[bucketIndex.get(k)].outward += 1;
+      });
+
+      const selectedKey =
+        bucketMode === 'month'
+          ? String(day).slice(0, 7)
+          : bucketMode === 'week'
+            ? weekStartKey(day)
+            : day;
+      const selectedBucket =
+        dayBuckets.find((b) => b.date === selectedKey) || dayBuckets[dayBuckets.length - 1];
+      setOverviewTotals({
+        tasks: tasks.length,
+        inward: selectedBucket?.inward || 0,
+        outward: selectedBucket?.outward || 0
+      });
+      setOverviewSeries(dayBuckets);
+
+      const parseTemp = (log) => {
+        const raw = log?.chamber_temp ?? log?.box_temp ?? log?.temperature ?? null;
+        if (raw == null || raw === '') return null;
+        const n = Number(raw);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const resolveChamberType = (log) => {
+        const zoned = pickComplianceZone(log?.chamber_type);
+        if (zoned) return zoned;
+        const raw = String(log?.chamber_type || '').trim();
+        return raw || '—';
+      };
+
+      // Assigned clients only (display names / codes from access list)
+      const seedNames = [];
+      if (overviewClient && overviewClient !== 'All') {
+        seedNames.push(overviewClient);
+      } else if (liveAllowedClients.length) {
+        seedNames.push(...liveAllowedClients);
+      } else {
+        tasks.forEach((log) => {
+          const n = String(log.client_name || '').trim();
+          if (n) seedNames.push(n);
+        });
+      }
+
+      // Identity map: access token / name / code → canonical client label
+      const clientIdentities = [];
+      const aliasIndex = new Map();
+
+      const registerAlias = (token, identityIdx) => {
+        const key = normName(token);
+        if (!key || aliasIndex.has(key)) return;
+        aliasIndex.set(key, identityIdx);
+        clientIdentities[identityIdx].aliases.add(key);
+      };
+
+      seedNames.forEach((raw) => {
+        const token = String(raw || '').trim();
+        if (!token) return;
+        const key = normName(token);
+        if (aliasIndex.has(key)) return;
+        const idx = clientIdentities.length;
+        clientIdentities.push({
+          client: token,
+          aliases: new Set([key])
+        });
+        aliasIndex.set(key, idx);
+      });
+
+      const resolveClientIdentity = (log) => {
+        const name = String(log.client_name || '').trim();
+        const code = String(log.client_code || '').trim();
+        const nameKey = normName(name);
+        const codeKey = normName(code);
+        let idx = -1;
+        if (nameKey && aliasIndex.has(nameKey)) idx = aliasIndex.get(nameKey);
+        else if (codeKey && aliasIndex.has(codeKey)) idx = aliasIndex.get(codeKey);
+        if (idx < 0) return null;
+        const identity = clientIdentities[idx];
+        if (name && !/^CL-/i.test(name)) identity.client = name;
+        if (name) registerAlias(name, idx);
+        if (code) registerAlias(code, idx);
+        return identity;
+      };
+
+      const isEveningLog = (log) => {
+        const s = String(log?.shift || '').trim().toLowerCase();
+        if (s === 'evening') return true;
+        if (s === 'morning') return false;
+        const t = String(log?.inspection_time || log?.shift_time || '');
+        return (
+          /^16:|^17:|^18:|^19:/.test(t) ||
+          /04:00\s*PM|4:00\s*PM|06:00\s*PM/i.test(t)
+        );
+      };
+
+      // One graph row per assigned client + chamber type (latest temp)
+      const rowMap = new Map(); // `${clientKey}::${typeKey}` → row
+
+      tasks.forEach((log) => {
+        const evening = isEveningLog(log);
+        if (overviewShift === 'Evening' ? !evening : evening) return;
+        const identity = resolveClientIdentity(log);
+        if (!identity) return;
+        const t = parseTemp(log);
+        if (t == null) return;
+        const chamberType = resolveChamberType(log);
+        const clientKey = normName(identity.client);
+        const typeKey = normName(chamberType) || 'unknown';
+        const mapKey = `${clientKey}::${typeKey}`;
+        if (rowMap.has(mapKey)) return; // newest-first from API
+        rowMap.set(mapKey, {
+          client: identity.client,
+          chamberType,
+          temp: Math.round(t * 10) / 10,
+          clientKey
+        });
+      });
+
+      // Assigned clients with no log for this date/shift still appear once
+      clientIdentities.forEach((identity) => {
+        const clientKey = normName(identity.client);
+        const hasAny = Array.from(rowMap.keys()).some((k) => k.startsWith(`${clientKey}::`));
+        if (hasAny) return;
+        rowMap.set(`${clientKey}::`, {
+          client: identity.client,
+          chamberType: null,
+          temp: null,
+          clientKey
+        });
+      });
+
+      setOverviewTaskGraph(
+        Array.from(rowMap.values()).sort((a, b) => {
+          const byClient = a.client.localeCompare(b.client);
+          if (byClient !== 0) return byClient;
+          return String(a.chamberType || '').localeCompare(String(b.chamberType || ''));
+        })
+      );
+    } catch (err) {
+      setOverviewError(
+        formatUserError(err, { apiUrl, context: 'Failed to load dashboard overview' })
+      );
+      setOverviewTotals({ tasks: 0, inward: 0, outward: 0 });
+      setOverviewSeries([]);
+      setOverviewTaskGraph([]);
+    } finally {
+      setOverviewLoading(false);
+      setHomeRefreshing(false);
+    }
+  }, [
+    apiUrl,
+    token,
+    authHeaders,
+    overviewDate,
+    overviewShift,
+    overviewWarehouse,
+    overviewClient,
+    overviewInOutRange,
+    allowedClients,
+    allowedWarehouses,
+    onUserUpdate
+  ]);
 
   // Handle Android system back button presses
   useEffect(() => {
@@ -574,13 +1294,20 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
       setWarehouseFilter('All');
     }
     if (
+      overviewWarehouse !== 'All' &&
+      allowedWarehouses.length > 0 &&
+      !allowedWarehouses.some((w) => normName(w) === normName(overviewWarehouse))
+    ) {
+      setOverviewWarehouse('All');
+    }
+    if (
       clientFilter !== 'All' &&
       allowedClients.length > 0 &&
       !allowedClients.some((c) => normName(c) === normName(clientFilter))
     ) {
       setClientFilter('All');
     }
-  }, [allowedWarehouses, allowedClients, warehouseFilter, clientFilter]);
+  }, [allowedWarehouses, allowedClients, warehouseFilter, overviewWarehouse, clientFilter]);
 
   const loadFilterScope = useCallback(async () => {
     if (!apiUrl || !token) return;
@@ -1530,11 +2257,9 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
   }, [apiUrl, token, authHeaders]);
 
   useEffect(() => {
-    if (activeTab === 'Dashboard') {
-      loadHomeOverview();
-      loadAdminNotes();
-    }
-  }, [activeTab, loadHomeOverview, loadAdminNotes]);
+    if (activeTab !== 'Dashboard') return;
+    loadOverview();
+  }, [activeTab, loadOverview]);
 
   useEffect(() => {
     if (activeTab !== 'Logs') return;
@@ -1573,8 +2298,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
 
   const onHomeRefresh = () => {
     setHomeRefreshing(true);
-    loadHomeOverview();
-    loadAdminNotes();
+    loadOverview();
   };
 
   const submitCustomerQuery = useCallback(async () => {
@@ -1658,6 +2382,11 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
     if (openFilter === 'reportClient') {
       setReportClientFilter(opt);
       setOpenFilter(null);
+      return;
+    }
+    if (openFilter === 'overviewWarehouse') {
+      setOverviewWarehouse(opt);
+      setOpenFilter(null);
     }
   };
 
@@ -1683,7 +2412,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
       >
         <Ionicons
           name={key === 'warehouse' ? 'business-outline' : 'people-outline'}
-          size={14}
+          size={12}
           color={isActive ? '#003580' : '#64748b'}
         />
         <View style={styles.filterChipTextWrap}>
@@ -1692,7 +2421,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
             {selectedLabel || 'All'}
           </Text>
         </View>
-        <Ionicons name="chevron-down" size={14} color={isActive ? '#003580' : '#94a3b8'} />
+        <Ionicons name="chevron-down" size={12} color={isActive ? '#003580' : '#94a3b8'} />
       </TouchableOpacity>
     );
   };
@@ -1702,23 +2431,39 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
     const isClient = openFilter === 'client';
     const isReportWarehouse = openFilter === 'reportWarehouse';
     const isReportClient = openFilter === 'reportClient';
-    if (!isWarehouse && !isClient && !isReportWarehouse && !isReportClient) return null;
+    const isOverviewWarehouse = openFilter === 'overviewWarehouse';
+    if (
+      !isWarehouse &&
+      !isClient &&
+      !isReportWarehouse &&
+      !isReportClient &&
+      !isOverviewWarehouse
+    ) {
+      return null;
+    }
 
-    const title = isWarehouse || isReportWarehouse ? 'Select warehouse' : 'Select client';
+    const title =
+      isWarehouse || isReportWarehouse || isOverviewWarehouse
+        ? 'Select warehouse'
+        : 'Select client';
     const options = isWarehouse
       ? warehouseOptions
       : isClient
         ? clientOptions
         : isReportWarehouse
           ? reportWarehouseOptions
-          : reportClientOptions;
+          : isOverviewWarehouse
+            ? overviewWarehouseOptions
+            : reportClientOptions;
     const selected = isWarehouse
       ? warehouseFilter
       : isClient
         ? clientFilter
         : isReportWarehouse
           ? reportWarehouseFilter
-          : reportClientFilter;
+          : isOverviewWarehouse
+            ? overviewWarehouse
+            : reportClientFilter;
     const onSelect = (v) => {
       pickFilterOption(v);
     };
@@ -1879,7 +2624,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
     }
 
     return (
-      <View style={styles.sliderOuterContainer}>
+      <View style={[styles.sliderOuterContainer, styles.logsSliderOuter]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sliderScroll}>
           {sliderDates.map((dateObj, i) => {
             const dateStr = toLocalYmd(dateObj);
@@ -1891,20 +2636,40 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
             return (
               <TouchableOpacity
                 key={dateStr}
-                style={[styles.sliderCard, isSelected && styles.sliderCardActive]}
+                style={[
+                  styles.sliderCard,
+                  styles.logsSliderCard,
+                  isSelected && styles.sliderCardActive
+                ]}
                 onPress={() => {
                   setLogsReportDateFrom(dateStr);
                   setLogsReportDateTo(dateStr);
                 }}
               >
-                <Text style={[styles.sliderDayName, isSelected && styles.sliderTextActive]}>{dayName}</Text>
-                <Text style={[styles.sliderDayNum, isSelected && styles.sliderTextActive]}>{dayNum}</Text>
+                <Text
+                  style={[
+                    styles.sliderDayName,
+                    styles.logsSliderDayName,
+                    isSelected && styles.sliderTextActive
+                  ]}
+                >
+                  {dayName}
+                </Text>
+                <Text
+                  style={[
+                    styles.sliderDayNum,
+                    styles.logsSliderDayNum,
+                    isSelected && styles.sliderTextActive
+                  ]}
+                >
+                  {dayNum}
+                </Text>
               </TouchableOpacity>
             );
           })}
         </ScrollView>
         <TouchableOpacity
-          style={styles.sliderCalendarBtn}
+          style={[styles.sliderCalendarBtn, styles.logsSliderCalendarBtn]}
           onPress={() => {
             setCalendarContext('logsTemp');
             setCalendarMonth(new Date(`${logsReportDateFrom}T12:00:00`));
@@ -1912,7 +2677,69 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
             setShowCalendarModal(true);
           }}
         >
-          <Ionicons name="calendar-outline" size={18} color="#003580" />
+          <Ionicons name="calendar-outline" size={12} color="#003580" />
+          <Text style={[styles.sliderCalendarBtnText, styles.logsSliderCalendarBtnText]}>Range</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderOverviewDateSlider = () => {
+    const sliderDates = [];
+    const weekDayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    for (let i = 0; i < 7; i += 1) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      sliderDates.push(d);
+    }
+
+    return (
+      <View style={[styles.sliderOuterContainer, styles.overviewSliderWrap]}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.sliderScroll}
+        >
+          {sliderDates.map((dateObj, i) => {
+            const dateStr = toLocalYmd(dateObj);
+            const isSelected = dateStr === overviewDate;
+            const dayName = i === 0 ? 'Today' : weekDayNames[dateObj.getDay()];
+            const dayNum = String(dateObj.getDate()).padStart(2, '0');
+
+            return (
+              <TouchableOpacity
+                key={`ov-${dateStr}`}
+                style={[styles.sliderCard, isSelected && styles.sliderCardActive]}
+                onPress={() => applyOverviewDate(dateStr)}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.sliderDayName, isSelected && styles.sliderTextActive]}>
+                  {dayName}
+                </Text>
+                <Text style={[styles.sliderDayNum, isSelected && styles.sliderTextActive]}>
+                  {dayNum}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+        <TouchableOpacity
+          style={styles.sliderCalendarBtn}
+          onPress={() => {
+            setCalendarContext('overview');
+            setCalendarPickMode('from');
+            try {
+              const [y, m] = String(overviewDate).split('-').map(Number);
+              if (y && m) setCalendarMonth(new Date(y, m - 1, 1));
+              else setCalendarMonth(new Date(`${overviewDate}T12:00:00`));
+            } catch (_) {
+              setCalendarMonth(new Date());
+            }
+            setShowCalendarModal(true);
+          }}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="calendar-outline" size={14} color="#003580" />
           <Text style={styles.sliderCalendarBtnText}>Range</Text>
         </TouchableOpacity>
       </View>
@@ -1921,26 +2748,26 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
 
   const renderLogsReportsView = () => {
     const reportDdBtn = {
-      height: 36,
+      height: 28,
       backgroundColor: '#fff',
-      borderRadius: 8,
+      borderRadius: 6,
       borderWidth: 1,
       borderColor: '#e2e8f0',
-      paddingHorizontal: 8,
+      paddingHorizontal: 6,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
     };
     const reportDdMenu = {
       position: 'absolute',
-      top: 40,
+      top: 30,
       left: 0,
       right: 0,
       backgroundColor: '#fff',
-      borderRadius: 8,
+      borderRadius: 6,
       borderWidth: 1,
       borderColor: '#e2e8f0',
-      maxHeight: 200,
+      maxHeight: 180,
       zIndex: 220,
       elevation: 8,
       shadowColor: '#000',
@@ -1953,8 +2780,8 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
       <TouchableOpacity
         key={key}
         style={{
-          paddingVertical: 10,
-          paddingHorizontal: 10,
+          paddingVertical: 7,
+          paddingHorizontal: 8,
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -1963,10 +2790,10 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
         }}
         onPress={onPress}
       >
-        <Text style={{ fontSize: 12, color: '#0f172a', fontWeight: selected ? '800' : '500' }} numberOfLines={1}>
+        <Text style={{ fontSize: 11, color: '#0f172a', fontWeight: selected ? '800' : '500' }} numberOfLines={1}>
           {label}
         </Text>
-        {selected ? <Ionicons name="checkmark" size={14} color="#003580" /> : null}
+        {selected ? <Ionicons name="checkmark" size={12} color="#003580" /> : null}
       </TouchableOpacity>
     );
 
@@ -1985,11 +2812,11 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
 
     return (
       <View style={styles.logsWrap}>
-        <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' }}>
+        <View style={{ paddingHorizontal: 10, paddingTop: 8, paddingBottom: 6, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ fontSize: 16, fontWeight: '800', color: '#0f172a' }}>Logs</Text>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: '#0f172a' }}>Logs</Text>
             <TouchableOpacity onPress={isDockMode ? clearAllFilters : clearLogsReportFilters} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>Clear</Text>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b' }}>Clear</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.reportsModeRow}>
@@ -2035,10 +2862,10 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                       setShowLogsTypeDropdown(false);
                     }}
                   >
-                    <Text style={{ fontSize: 11, color: '#1e293b', fontWeight: '700', flex: 1, marginRight: 4 }} numberOfLines={1}>
+                    <Text style={{ fontSize: 10, color: '#1e293b', fontWeight: '700', flex: 1, marginRight: 4 }} numberOfLines={1}>
                       {chamberLabel}
                     </Text>
-                    <Ionicons name={showLogsChamberDropdown ? 'chevron-up' : 'chevron-down'} size={14} color="#64748b" />
+                    <Ionicons name={showLogsChamberDropdown ? 'chevron-up' : 'chevron-down'} size={12} color="#64748b" />
                   </TouchableOpacity>
                   {showLogsChamberDropdown ? (
                     <View style={reportDdMenu}>
@@ -2069,10 +2896,10 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                       setShowLogsTypeDropdown(false);
                     }}
                   >
-                    <Text style={{ fontSize: 11, color: '#1e293b', fontWeight: '700', flex: 1, marginRight: 4 }} numberOfLines={1}>
+                    <Text style={{ fontSize: 10, color: '#1e293b', fontWeight: '700', flex: 1, marginRight: 4 }} numberOfLines={1}>
                       {clientLabel}
                     </Text>
-                    <Ionicons name={showLogsClientDropdown ? 'chevron-up' : 'chevron-down'} size={14} color="#64748b" />
+                    <Ionicons name={showLogsClientDropdown ? 'chevron-up' : 'chevron-down'} size={12} color="#64748b" />
                   </TouchableOpacity>
                   {showLogsClientDropdown ? (
                     <View style={reportDdMenu}>
@@ -2101,10 +2928,10 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                       setShowLogsClientDropdown(false);
                     }}
                   >
-                    <Text style={{ fontSize: 11, color: '#1e293b', fontWeight: '700', flex: 1, marginRight: 4 }} numberOfLines={1}>
+                    <Text style={{ fontSize: 10, color: '#1e293b', fontWeight: '700', flex: 1, marginRight: 4 }} numberOfLines={1}>
                       {typeLabel}
                     </Text>
-                    <Ionicons name={showLogsTypeDropdown ? 'chevron-up' : 'chevron-down'} size={14} color="#64748b" />
+                    <Ionicons name={showLogsTypeDropdown ? 'chevron-up' : 'chevron-down'} size={12} color="#64748b" />
                   </TouchableOpacity>
                   {showLogsTypeDropdown ? (
                     <View style={reportDdMenu}>
@@ -2223,7 +3050,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
               </View>
               <View style={styles.dockReportFilterBar}>
                 <View style={styles.dockReportSearchRow}>
-                  <Ionicons name="search-outline" size={18} color="#64748b" />
+                  <Ionicons name="search-outline" size={14} color="#64748b" />
                   <TextInput
                     style={styles.dockReportSearchInput}
                     placeholder="Search vehicle, client, ref…"
@@ -2612,109 +3439,101 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
       item._logType === 'inward' ? 'Inward' : item._logType === 'outward' ? 'Outward' : 'Chamber';
 
     if (item._logType === 'inward') {
-      const shortQty = parseInt(item.inward_short_received_boxes_qty, 10) || 0;
-      const excessQty = parseInt(item.inward_excess_received_boxes_qty, 10) || 0;
       const received = item.inward_received_boxes_qty ?? item.inward_received_qty;
+      const rightValue =
+        item.inward_material_temp != null
+          ? `${item.inward_material_temp}°C`
+          : item.inward_vehicle_temp != null
+            ? `${item.inward_vehicle_temp}°C`
+            : received != null
+              ? String(received)
+              : '—';
+      const vehicleOrDock = item.inward_vehicle_no
+        ? `Vehicle ${item.inward_vehicle_no}`
+        : item.inward_dock_no
+          ? `Dock ${item.inward_dock_no}`
+          : '—';
+      const podVal = String(item.inward_pod_photo || '').trim();
+      const podMissing = !podVal || podVal === 'null' || podVal === 'undefined';
       return (
         <TouchableOpacity
-          style={styles.inwardReportCard}
-          activeOpacity={0.88}
+          style={styles.dockLogCard}
+          activeOpacity={0.85}
           onPress={() => setSelectedLog(item)}
         >
-          <View style={styles.inwardReportCardTop}>
-            <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={styles.inwardReportRef} numberOfLines={1}>
-                {item.reference_no || `INW-${item.inward_id}`}
-                <Text style={styles.inwardReportDateInline}>{`  ${item.inward_entry_date || ''}`}</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={styles.dockLogTitleRow}>
+              <Text style={styles.dockLogTypeTag}>Inward</Text>
+              <Text style={styles.dockLogClient} numberOfLines={1}>
+                {item.inward_client_name || item.client_name || 'Client'}
               </Text>
-              <Text style={styles.inwardReportClient} numberOfLines={1}>
-                {item.inward_client_name || item.client_name || '—'}
-                {item.inward_vehicle_no ? ` · ${item.inward_vehicle_no}` : ''}
-                {item.inward_dock_no ? ` · Dock ${item.inward_dock_no}` : ''}
-              </Text>
+              {podMissing ? (
+                <View style={styles.inwardPodMissingBadge}>
+                  <Text style={styles.inwardPodMissingBadgeText}>POD</Text>
+                </View>
+              ) : null}
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+            <Text style={styles.dockLogMeta} numberOfLines={2}>
+              {vehicleOrDock}
+              {item.warehouse_name ? ` · ${item.warehouse_name}` : ''}
+              {' · '}
+              {String(item.inward_entry_date || item.entry_date || '').slice(0, 10) || '—'}
+              {item.inward_material_type ? ` · ${item.inward_material_type}` : ''}
+            </Text>
           </View>
-          <View style={styles.inwardReportStatsRow}>
-            <View style={styles.inwardReportStat}>
-              <Text style={styles.inwardReportStatLabel}>Veh °C</Text>
-              <Text style={styles.inwardReportStatValue}>{item.inward_vehicle_temp ?? '—'}</Text>
-            </View>
-            <View style={styles.inwardReportStat}>
-              <Text style={styles.inwardReportStatLabel}>Mat °C</Text>
-              <Text style={styles.inwardReportStatValue}>{item.inward_material_temp ?? '—'}</Text>
-            </View>
-            <View style={styles.inwardReportStat}>
-              <Text style={styles.inwardReportStatLabel}>Received</Text>
-              <Text style={styles.inwardReportStatValue}>{received ?? '—'}</Text>
-            </View>
-            <View style={styles.inwardReportStat}>
-              <Text style={styles.inwardReportStatLabel}>
-                {shortQty > 0 ? 'Short' : excessQty > 0 ? 'Excess' : 'Var'}
-              </Text>
-              <Text
-                style={[
-                  styles.inwardReportStatValue,
-                  shortQty > 0 && { color: '#dc2626' },
-                  excessQty > 0 && { color: '#16a34a' },
-                ]}
-              >
-                {shortQty > 0 ? shortQty : excessQty > 0 ? excessQty : '0'}
-              </Text>
-            </View>
-          </View>
+          <Text style={styles.dockLogTemp}>{rightValue}</Text>
         </TouchableOpacity>
       );
     }
 
     if (item._logType === 'outward') {
-      const shortQty = parseInt(item.outward_short_received_boxes_qty, 10) || 0;
-      const excessQty = parseInt(item.outward_excess_received_boxes_qty, 10) || 0;
-      const loaded = item.outward_received_boxes_qty ?? item.outward_received_qty;
+      const loaded =
+        item.outward_loaded_boxes_qty ??
+        item.outward_received_boxes_qty ??
+        item.outward_received_qty;
+      const preVehicleTemp = item.outward_pre_vehicle_temp ?? item.outward_vehicle_temp;
+      const rightValue =
+        item.outward_material_temp != null
+          ? `${item.outward_material_temp}°C`
+          : preVehicleTemp != null
+            ? `${preVehicleTemp}°C`
+            : loaded != null
+              ? String(loaded)
+              : '—';
+      const vehicleOrDock = item.outward_vehicle_no
+        ? `Vehicle ${item.outward_vehicle_no}`
+        : item.outward_dock_no
+          ? `Dock ${item.outward_dock_no}`
+          : '—';
+      const podVal = String(item.outward_pod_photo || '').trim();
+      const podMissing = !podVal || podVal === 'null' || podVal === 'undefined';
       return (
         <TouchableOpacity
-          style={styles.inwardReportCard}
-          activeOpacity={0.88}
+          style={styles.dockLogCard}
+          activeOpacity={0.85}
           onPress={() => setSelectedLog(item)}
         >
-          <View style={styles.inwardReportCardTop}>
-            <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={styles.inwardReportRef} numberOfLines={1}>
-                {item.reference_no || `OUT-${item.outward_id}`}
-                <Text style={styles.inwardReportDateInline}>{`  ${item.outward_entry_date || ''}`}</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={styles.dockLogTitleRow}>
+              <Text style={[styles.dockLogTypeTag, styles.dockLogTypeTagOut]}>Outward</Text>
+              <Text style={styles.dockLogClient} numberOfLines={1}>
+                {item.outward_client_name || item.client_name || 'Client'}
               </Text>
-              <Text style={styles.inwardReportClient} numberOfLines={1}>
-                {item.outward_client_name || item.client_name || '—'}
-                {item.outward_vehicle_no ? ` · ${item.outward_vehicle_no}` : ''}
-                {item.outward_dock_no ? ` · Dock ${item.outward_dock_no}` : ''}
-              </Text>
+              {podMissing ? (
+                <View style={styles.inwardPodMissingBadge}>
+                  <Text style={styles.inwardPodMissingBadgeText}>POD</Text>
+                </View>
+              ) : null}
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+            <Text style={styles.dockLogMeta} numberOfLines={2}>
+              {vehicleOrDock}
+              {item.warehouse_name ? ` · ${item.warehouse_name}` : ''}
+              {' · '}
+              {String(item.outward_entry_date || item.entry_date || '').slice(0, 10) || '—'}
+              {item.outward_material_type ? ` · ${item.outward_material_type}` : ''}
+            </Text>
           </View>
-          <View style={styles.inwardReportStatsRow}>
-            <View style={styles.inwardReportStat}>
-              <Text style={styles.inwardReportStatLabel}>Pre °C</Text>
-              <Text style={styles.inwardReportStatValue}>
-                {item.outward_pre_vehicle_temp ?? item.outward_vehicle_temp ?? '—'}
-              </Text>
-            </View>
-            <View style={styles.inwardReportStat}>
-              <Text style={styles.inwardReportStatLabel}>Mat °C</Text>
-              <Text style={styles.inwardReportStatValue}>{item.outward_material_temp ?? '—'}</Text>
-            </View>
-            <View style={styles.inwardReportStat}>
-              <Text style={styles.inwardReportStatLabel}>Loaded</Text>
-              <Text style={styles.inwardReportStatValue}>{loaded ?? '—'}</Text>
-            </View>
-            <View style={styles.inwardReportStat}>
-              <Text style={styles.inwardReportStatLabel}>
-                {shortQty > 0 ? 'Short' : excessQty > 0 ? 'Excess' : 'Var'}
-              </Text>
-              <Text style={styles.inwardReportStatValue}>
-                {shortQty > 0 ? shortQty : excessQty > 0 ? excessQty : '0'}
-              </Text>
-            </View>
-          </View>
+          <Text style={styles.dockLogTemp}>{rightValue}</Text>
         </TouchableOpacity>
       );
     }
@@ -3214,23 +4033,31 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
     if (calendarContext === 'logsTemp') {
       setLogsReportDateFrom(from);
       setLogsReportDateTo(to);
+    } else if (calendarContext === 'overview') {
+      applyOverviewDate(from || to);
     } else {
       applyDateRange(from, to);
     }
   };
 
+  const isOverviewCalendar = calendarContext === 'overview';
+
   const calendarRangeFrom =
     calendarContext === 'logsTemp'
       ? logsReportDateFrom
-      : dateFrom === 'All'
-        ? null
-        : dateFrom;
+      : isOverviewCalendar
+        ? overviewDate
+        : dateFrom === 'All'
+          ? null
+          : dateFrom;
   const calendarRangeTo =
     calendarContext === 'logsTemp'
       ? logsReportDateTo
-      : dateTo === 'All'
-        ? null
-        : dateTo;
+      : isOverviewCalendar
+        ? overviewDate
+        : dateTo === 'All'
+          ? null
+          : dateTo;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -3273,133 +4100,227 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                   <View style={styles.homeHeroOverlay}>
                     <Text style={styles.homeHeroTitle}>Stay informed. Stay in control.</Text>
                     <Text style={styles.homeHeroSubtitle}>
-                      Get clear visibility into your cold-chain operations and daily activities.
+                      Fast overview of temperature, inward and outward activity.
                     </Text>
                   </View>
                 </ImageBackground>
 
-                {homeLoading && !homeRefreshing ? (
+                {overviewLoading && !homeRefreshing ? (
                   <View style={styles.centerState}>
                     <ActivityIndicator size="large" color="#003580" />
-                    <Text style={styles.stateText}>Loading today logs…</Text>
+                    <Text style={styles.stateText}>Loading overview…</Text>
                   </View>
-                ) : homeError ? (
-                  <InlineErrorState message={homeError} onRetry={loadHomeOverview} />
+                ) : overviewError ? (
+                  <InlineErrorState message={overviewError} onRetry={loadOverview} />
                 ) : (
                   <>
-                    <View style={[styles.card, styles.adminNotesHomeCard]}>
-                      <View style={styles.cardTitleRow}>
-                        <Text style={styles.cardTitle}>New Updates</Text>
-                        <TouchableOpacity onPress={loadAdminNotes} activeOpacity={0.85}>
-                          <Text style={styles.linkText}>Refresh</Text>
-                        </TouchableOpacity>
-                      </View>
-                      {adminNotesError ? (
-                        <Text style={[styles.cardHint, { color: '#dc2626' }]}>{adminNotesError}</Text>
-                      ) : null}
-                      {adminNotesLoading ? (
-                        <ActivityIndicator size="small" color="#003580" style={{ marginVertical: 12 }} />
-                      ) : adminNotes.length === 0 ? (
-                        <Text style={styles.cardHint}>No new updates yet.</Text>
-                      ) : (
-                        <ScrollView
-                          style={styles.adminNotesScroll}
-                          nestedScrollEnabled
-                          showsVerticalScrollIndicator={false}
+                    {renderOverviewDateSlider()}
+
+                    <View style={styles.overviewDateRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.overviewDateChip,
+                          styles.overviewWarehouseChip,
+                          overviewWarehouse !== 'All' && styles.overviewWarehouseChipActive
+                        ]}
+                        onPress={() =>
+                          setOpenFilter((prev) =>
+                            prev === 'overviewWarehouse' ? null : 'overviewWarehouse'
+                          )
+                        }
+                        activeOpacity={0.85}
+                      >
+                        <Ionicons
+                          name="business-outline"
+                          size={12}
+                          color={overviewWarehouse !== 'All' ? '#003580' : '#64748b'}
+                        />
+                        <Text
+                          style={[
+                            styles.overviewDateChipText,
+                            overviewWarehouse !== 'All' && styles.overviewWarehouseChipTextActive
+                          ]}
+                          numberOfLines={1}
                         >
-                          {adminNotes.map((m) => (
-                            <View
-                              key={String(m.id)}
-                              style={[styles.adminNoteBubble, styles.adminNoteBubbleAdmin]}
-                            >
-                              <Text style={[styles.adminNoteBody, styles.adminNoteBodyAdmin]}>
-                                {m.message}
-                              </Text>
-                            </View>
-                          ))}
-                        </ScrollView>
+                          {overviewWarehouse === 'All' ? 'Warehouse' : overviewWarehouse}
+                        </Text>
+                        <Ionicons
+                          name="chevron-down"
+                          size={11}
+                          color={overviewWarehouse !== 'All' ? '#003580' : '#94a3b8'}
+                        />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.card}>
+                      <View style={styles.tempGraphHeader}>
+                        <View style={styles.tempGraphHeaderText}>
+                          <Text style={styles.cardTitle}>Daily Temperatures</Text>
+                          <Text style={styles.cardHint}>Latest chamber temp</Text>
+                        </View>
+                        <View style={styles.overviewShiftRow}>
+                          {['Morning', 'Evening'].map((shift) => {
+                            const active = overviewShift === shift;
+                            return (
+                              <TouchableOpacity
+                                key={shift}
+                                style={[
+                                  styles.overviewShiftChip,
+                                  active && styles.overviewShiftChipActive
+                                ]}
+                                onPress={() => setOverviewShift(shift)}
+                                activeOpacity={0.85}
+                              >
+                                <Ionicons
+                                  name={shift === 'Morning' ? 'sunny-outline' : 'moon-outline'}
+                                  size={11}
+                                  color={active ? '#ffffff' : '#003580'}
+                                />
+                                <Text
+                                  style={[
+                                    styles.overviewShiftChipText,
+                                    active && styles.overviewShiftChipTextActive
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {shift}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+
+                      {overviewTaskGraph.length === 0 ? (
+                        <Text style={styles.cardHint}>
+                          No clients assigned to this customer yet.
+                        </Text>
+                      ) : (
+                        (() => {
+                          const isTempOutOfRange = (temp, chamberType) => {
+                            if (temp == null || !Number.isFinite(Number(temp))) return false;
+                            const t = Number(temp);
+                            const zone =
+                              pickComplianceZone(chamberType) || normalizeChamberZone(chamberType);
+                            if (zone === 'Frozen') return t > -18;
+                            if (zone === 'Chilled') return t < -5 || t > 5;
+                            if (zone === 'Dry') return t < 15 || t > 25;
+                            return false;
+                          };
+
+                          const maxAbs = Math.max(
+                            1,
+                            ...overviewTaskGraph.map((r) =>
+                              r.temp != null ? Math.abs(Number(r.temp)) : 0
+                            )
+                          );
+                          return overviewTaskGraph.map((row, idx) => {
+                            const hasTemp =
+                              row.temp != null && Number.isFinite(Number(row.temp));
+                            const abs = hasTemp ? Math.abs(Number(row.temp)) : 0;
+                            const pct = hasTemp
+                              ? Math.max(8, Math.round((abs / maxAbs) * 100))
+                              : 0;
+                            const label = hasTemp
+                              ? `${
+                                  Number(row.temp) % 1 === 0
+                                    ? Number(row.temp)
+                                    : Number(row.temp).toFixed(1)
+                                }°C`
+                              : '—';
+                            const typeLabel = row.chamberType || null;
+                            const outOfRange =
+                              hasTemp && isTempOutOfRange(row.temp, typeLabel);
+                            const rowKey = `${row.clientKey || row.client}::${typeLabel || idx}`;
+                            return (
+                              <View key={rowKey} style={styles.tempGraphRow}>
+                                <View style={styles.tempGraphClientCol}>
+                                  <Text style={styles.tempGraphClient} numberOfLines={1}>
+                                    {row.client}
+                                  </Text>
+                                  {typeLabel ? (
+                                    <Text
+                                      style={[
+                                        styles.tempGraphType,
+                                        outOfRange && styles.tempGraphTypeAlert
+                                      ]}
+                                      numberOfLines={1}
+                                    >
+                                      {typeLabel}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                                <View style={styles.tempGraphBarTrack}>
+                                  <View
+                                    style={[
+                                      styles.tempGraphBarFill,
+                                      outOfRange && styles.tempGraphBarFillAlert,
+                                      { width: `${pct}%` }
+                                    ]}
+                                  />
+                                </View>
+                                <Text
+                                  style={[
+                                    styles.tempGraphValue,
+                                    outOfRange && styles.tempGraphValueAlert
+                                  ]}
+                                >
+                                  {label}
+                                </Text>
+                              </View>
+                            );
+                          });
+                        })()
                       )}
                     </View>
 
-                    {homeUpdates.length > 0 ? (
-                      <View style={styles.card}>
-                        <View style={styles.cardTitleRow}>
-                          <Text style={styles.cardTitle}>Log changes</Text>
-                          <TouchableOpacity onPress={() => setActiveTab('Logs')} activeOpacity={0.85}>
-                            <Text style={styles.linkText}>View all →</Text>
-                          </TouchableOpacity>
-                        </View>
-                        {homeUpdates.map((item, idx) => (
-                          <TouchableOpacity
-                            key={`upd-${String(item.id || item.reference_no || idx)}`}
-                            style={[styles.recentRow, idx > 0 && styles.recentRowBorder]}
-                            onPress={() => setSelectedLog(item)}
-                            activeOpacity={0.85}
-                          >
-                            <View style={styles.updateIconWrap}>
-                              <Ionicons name="create-outline" size={16} color="#003580" />
-                            </View>
-                            <View style={{ flex: 1, minWidth: 0 }}>
-                              <Text style={styles.recentClient} numberOfLines={1}>
-                                {item.client_name || 'Client'}
-                                {item.chamber_name ? ` · ${item.chamber_name}` : ''}
-                              </Text>
-                              <Text style={styles.recentMeta} numberOfLines={2}>
-                                {formatUpdatePreview(item)}
-                              </Text>
-                              <Text style={styles.updateMetaLine} numberOfLines={1}>
-                                {String(item.formatted_date || item.entry_date || '').slice(0, 10) ||
-                                  '—'}
-                                {item.shift ? ` · ${item.shift}` : ''}
-                                {Number(item.update_count) > 0
-                                  ? ` · ${item.update_count} update${
-                                      Number(item.update_count) === 1 ? '' : 's'
-                                    }`
-                                  : ''}
-                              </Text>
-                            </View>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    ) : null}
-
                     <View style={styles.card}>
-                      <View style={styles.cardTitleRow}>
-                        <Text style={styles.cardTitle}>Today logs</Text>
-                        <TouchableOpacity onPress={() => setActiveTab('Logs')} activeOpacity={0.85}>
-                          <Text style={styles.linkText}>View all →</Text>
-                        </TouchableOpacity>
+                      <View style={styles.tempGraphHeader}>
+                        <View style={styles.tempGraphHeaderText}>
+                          <Text style={styles.cardTitle}>In & Out</Text>
+                          <Text style={styles.cardHint}>
+                            {overviewInOutRange === 'today'
+                              ? 'Today · candle view'
+                              : overviewInOutRange === '1m'
+                                ? 'Last 30 days · weekly candles'
+                                : overviewInOutRange === '1y'
+                                  ? 'Last 12 months · monthly candles'
+                                  : 'Last 7 days · daily candles'}
+                          </Text>
+                        </View>
                       </View>
-                      {todayLogItems.length === 0 ? (
-                        <Text style={styles.cardHint}>No temperature logs for today yet.</Text>
-                      ) : (
-                        todayLogItems.map((item, idx) => (
-                          <TouchableOpacity
-                            key={String(item.id || item.reference_no || idx)}
-                            style={[styles.recentRow, idx > 0 && styles.recentRowBorder]}
-                            onPress={() => setSelectedLog(item)}
-                            activeOpacity={0.85}
-                          >
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.recentClient} numberOfLines={1}>
-                                {item.client_name || 'Client'}
+                      <View style={styles.inoutRangeRow}>
+                        {[
+                          { id: 'today', label: 'Today' },
+                          { id: '7d', label: '7 Days' },
+                          { id: '1m', label: '1 Month' },
+                          { id: '1y', label: '1 Year' }
+                        ].map((opt) => {
+                          const active = overviewInOutRange === opt.id;
+                          return (
+                            <TouchableOpacity
+                              key={opt.id}
+                              style={[
+                                styles.inoutRangeChip,
+                                active && styles.inoutRangeChipActive
+                              ]}
+                              onPress={() => setOverviewInOutRange(opt.id)}
+                              activeOpacity={0.85}
+                            >
+                              <Text
+                                style={[
+                                  styles.inoutRangeChipText,
+                                  active && styles.inoutRangeChipTextActive
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {opt.label}
                               </Text>
-                              <Text style={styles.recentMeta} numberOfLines={1}>
-                                {item.chamber_name || 'Chamber'} ·{' '}
-                                {item.shift || item.inspection_time || '—'}
-                                {item.warehouse_name ? ` · ${item.warehouse_name}` : ''}
-                              </Text>
-                            </View>
-                            <Text style={styles.recentTemp}>
-                              {item.box_temp != null
-                                ? `${item.box_temp}°C`
-                                : item.chamber_temp != null
-                                  ? `${item.chamber_temp}°C`
-                                  : '—'}
-                            </Text>
-                          </TouchableOpacity>
-                        ))
-                      )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                      <InOutMarketChart series={overviewSeries} />
                     </View>
                   </>
                 )}
@@ -3604,11 +4525,18 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
           />
           <View style={styles.calendarCard}>
             <View style={styles.calendarSheetHandle} />
-            <Text style={styles.calendarTitle}>Select date range</Text>
+            <Text style={styles.calendarTitle}>
+              {isOverviewCalendar ? 'Select date' : 'Select date range'}
+            </Text>
             <Text style={styles.calendarHint}>
-              {calendarPickMode === 'from' ? 'Tap start date, then end date' : 'Tap end date to finish'}
+              {isOverviewCalendar
+                ? 'Tap one date to filter dashboard'
+                : calendarPickMode === 'from'
+                  ? 'Tap start date, then end date'
+                  : 'Tap end date to finish'}
             </Text>
 
+            {!isOverviewCalendar ? (
             <View style={styles.calendarChipRow}>
               <TouchableOpacity
                 style={[styles.calendarModeChip, calendarPickMode === 'from' && styles.calendarModeChipActive]}
@@ -3620,7 +4548,10 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                     calendarPickMode === 'from' && styles.calendarModeChipTextActive
                   ]}
                 >
-                  From: {calendarContext === 'logsTemp' ? logsReportDateFrom : formatDateLabel(dateFrom)}
+                  From:{' '}
+                  {calendarContext === 'logsTemp'
+                    ? logsReportDateFrom
+                    : formatDateLabel(dateFrom)}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -3633,10 +4564,22 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                     calendarPickMode === 'to' && styles.calendarModeChipTextActive
                   ]}
                 >
-                  To: {calendarContext === 'logsTemp' ? logsReportDateTo : formatDateLabel(dateTo)}
+                  To:{' '}
+                  {calendarContext === 'logsTemp'
+                    ? logsReportDateTo
+                    : formatDateLabel(dateTo)}
                 </Text>
               </TouchableOpacity>
             </View>
+            ) : (
+              <View style={styles.calendarChipRow}>
+                <View style={[styles.calendarModeChip, styles.calendarModeChipActive]}>
+                  <Text style={[styles.calendarModeChipText, styles.calendarModeChipTextActive]}>
+                    Date: {formatDateLabel(overviewDate)}
+                  </Text>
+                </View>
+              </View>
+            )}
 
             <View style={styles.calendarMonthRow}>
               <TouchableOpacity
@@ -3684,15 +4627,22 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                       : calendarRangeTo
                     : calendarRangeTo;
                 const rangeStart = effectiveFrom;
-                const rangeEnd = effectiveTo;
+                const rangeEnd = isOverviewCalendar ? effectiveFrom : effectiveTo;
                 const isStart = rangeStart && dateStr === rangeStart;
-                const isEnd = rangeEnd && dateStr === rangeEnd;
+                const isEnd = !isOverviewCalendar && rangeEnd && dateStr === rangeEnd;
                 const inRange =
-                  rangeStart && rangeEnd && dateStr >= rangeStart && dateStr <= rangeEnd;
+                  !isOverviewCalendar &&
+                  rangeStart &&
+                  rangeEnd &&
+                  dateStr >= rangeStart &&
+                  dateStr <= rangeEnd;
                 const isToday = dateStr === toLocalYmd();
                 // In To mode: dates before From are not selectable
                 const isDisabled =
-                  calendarPickMode === 'to' && effectiveFrom != null && dateStr < effectiveFrom;
+                  !isOverviewCalendar &&
+                  calendarPickMode === 'to' &&
+                  effectiveFrom != null &&
+                  dateStr < effectiveFrom;
 
                 return (
                   <TouchableOpacity
@@ -3706,6 +4656,11 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                       isDisabled && styles.calendarDayDisabled
                     ]}
                     onPress={() => {
+                      if (isOverviewCalendar) {
+                        applyOverviewDate(dateStr);
+                        setShowCalendarModal(false);
+                        return;
+                      }
                       if (calendarPickMode === 'from') {
                         const nextTo =
                           calendarContext === 'logsTemp'
@@ -3747,6 +4702,8 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                   if (calendarContext === 'logsTemp') {
                     setLogsReportDateFrom(t);
                     setLogsReportDateTo(t);
+                  } else if (isOverviewCalendar) {
+                    applyOverviewDate(t);
                   } else {
                     suggestToday();
                   }
@@ -3764,6 +4721,8 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                   if (calendarContext === 'logsTemp') {
                     setLogsReportDateFrom(y);
                     setLogsReportDateTo(y);
+                  } else if (isOverviewCalendar) {
+                    applyOverviewDate(y);
                   } else {
                     suggestYesterday();
                   }
@@ -3772,6 +4731,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
               >
                 <Text style={styles.dateSuggestText}>Yesterday</Text>
               </TouchableOpacity>
+              {!isOverviewCalendar ? (
               <TouchableOpacity
                 style={styles.dateSuggestChip}
                 onPress={() => {
@@ -3789,6 +4749,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
               >
                 <Text style={styles.dateSuggestText}>Last 7 days</Text>
               </TouchableOpacity>
+              ) : null}
             </View>
 
             <TouchableOpacity
@@ -3879,30 +4840,579 @@ const styles = StyleSheet.create({
   contentArea: { flex: 1, paddingBottom: 64 },
   body: { padding: 16, paddingBottom: 40 },
   homeHero: {
-    height: 160,
+    height: 110,
     marginHorizontal: -16,
     marginTop: -16,
-    marginBottom: 16,
+    marginBottom: 12,
     justifyContent: 'flex-end'
   },
   homeHeroOverlay: {
     backgroundColor: 'rgba(0, 30, 80, 0.55)',
     paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 14
+    paddingTop: 12,
+    paddingBottom: 10
   },
   homeHeroTitle: {
     color: '#ffffff',
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '800',
-    lineHeight: 26
+    lineHeight: 22
   },
   homeHeroSubtitle: {
     color: '#e2e8f0',
-    fontSize: 12,
-    marginTop: 6,
-    lineHeight: 18,
+    fontSize: 11,
+    marginTop: 4,
+    lineHeight: 15,
     fontWeight: '500'
+  },
+  dashboardHint: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '600',
+    textAlign: 'center'
+  },
+  overviewPresetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8
+  },
+  overviewPresetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0'
+  },
+  overviewPresetChipActive: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#93c5fd'
+  },
+  overviewPresetText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b'
+  },
+  overviewPresetTextActive: {
+    color: '#003580'
+  },
+  overviewDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'nowrap',
+    gap: 6,
+    marginTop: 2,
+    marginBottom: 10
+  },
+  overviewDateChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#d2e3fc'
+  },
+  overviewDateChipText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0f172a',
+    minWidth: 0
+  },
+  overviewWarehouseChip: {},
+  overviewWarehouseChipActive: {
+    borderColor: '#93c5fd',
+    backgroundColor: '#eff6ff'
+  },
+  overviewWarehouseChipTextActive: {
+    color: '#003580'
+  },
+  overviewDateTodayBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#e8f0fe'
+  },
+  overviewDateTodayText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#003580'
+  },
+  overviewShiftRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: 4
+  },
+  overviewShiftChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#d2e3fc'
+  },
+  overviewShiftChipActive: {
+    backgroundColor: '#003580',
+    borderColor: '#003580'
+  },
+  overviewShiftChipText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#003580'
+  },
+  overviewShiftChipTextActive: {
+    color: '#ffffff'
+  },
+  inoutRangeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10
+  },
+  inoutRangeChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0'
+  },
+  inoutRangeChipActive: {
+    backgroundColor: '#0F766E',
+    borderColor: '#0F766E'
+  },
+  inoutRangeChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569'
+  },
+  inoutRangeChipTextActive: {
+    color: '#ffffff',
+    fontWeight: '800'
+  },
+  tempGraphHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 4
+  },
+  tempGraphHeaderText: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 4
+  },
+  overviewClientBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  overviewClientBtnText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f172a'
+  },
+  overviewClientMenu: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '100%',
+    marginTop: 4,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 }
+  },
+  overviewClientItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0'
+  },
+  overviewClientItemActive: {
+    backgroundColor: '#eff6ff'
+  },
+  overviewClientItemText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155'
+  },
+  overviewClientItemTextActive: {
+    color: '#003580',
+    fontWeight: '800'
+  },
+  overviewKpiRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12
+  },
+  overviewKpiCard: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0'
+  },
+  overviewKpiValue: {
+    fontSize: 20,
+    fontWeight: '900',
+    marginTop: 4
+  },
+  overviewKpiLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748b',
+    marginTop: 2
+  },
+  overviewActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12
+  },
+  overviewFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0'
+  },
+  overviewFilterChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155'
+  },
+  dailyTempScreenHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12
+  },
+  dailyTempBackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 4,
+    paddingRight: 6
+  },
+  dailyTempBackText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#003580'
+  },
+  dailyTempScreenTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a'
+  },
+  overviewFilterBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  overviewFilterBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#ffffff'
+  },
+  taskGraphHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 6,
+    paddingBottom: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0'
+  },
+  taskGraphHeadCell: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748b',
+    textTransform: 'uppercase'
+  },
+  taskGraphClientCol: {
+    width: '28%',
+    paddingRight: 6
+  },
+  taskGraphBarCol: {
+    width: '36%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingRight: 4
+  },
+  taskGraphRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8
+  },
+  taskGraphClient: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0f172a'
+  },
+  taskGraphBarTrack: {
+    flex: 1,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#f1f5f9',
+    overflow: 'hidden'
+  },
+  taskGraphBarFill: {
+    height: '100%',
+    borderRadius: 5,
+    minWidth: 0
+  },
+  taskGraphBarMorning: {
+    backgroundColor: '#003580'
+  },
+  taskGraphBarEvening: {
+    backgroundColor: '#0d9488'
+  },
+  taskGraphCount: {
+    width: 18,
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#475569',
+    textAlign: 'right'
+  },
+  tempGraphRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    gap: 8
+  },
+  tempGraphClientCol: {
+    width: 104,
+    paddingRight: 2
+  },
+  tempGraphClient: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f172a'
+  },
+  tempGraphType: {
+    marginTop: 1,
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748b'
+  },
+  tempGraphTypeAlert: {
+    color: '#dc2626'
+  },
+  tempGraphBarTrack: {
+    flex: 1,
+    height: 14,
+    borderRadius: 4,
+    backgroundColor: '#e8eef6',
+    overflow: 'hidden'
+  },
+  tempGraphBarFill: {
+    height: '100%',
+    borderRadius: 4,
+    backgroundColor: '#003580'
+  },
+  tempGraphBarFillAlert: {
+    backgroundColor: '#dc2626'
+  },
+  tempGraphValue: {
+    width: 48,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0f172a',
+    textAlign: 'right'
+  },
+  tempGraphValueAlert: {
+    color: '#dc2626'
+  },
+  overviewActionsWrap: {
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 12,
+    marginBottom: 12
+  },
+  overviewActionsTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#003580',
+    marginBottom: 10
+  },
+  overviewActionBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 12,
+    paddingBottom: 10,
+    paddingHorizontal: 6,
+    borderRadius: 14,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    minHeight: 132
+  },
+  overviewActionIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8
+  },
+  overviewActionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+    marginTop: 2
+  },
+  overviewActionCount: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#0f172a',
+    lineHeight: 26
+  },
+  overviewActionPill: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999
+  },
+  overviewActionPillText: {
+    fontSize: 10,
+    fontWeight: '800'
+  },
+  overviewBarRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'flex-end',
+    marginTop: 8,
+    height: 140,
+    paddingBottom: 4
+  },
+  overviewBarCol: {
+    alignItems: 'center',
+    width: 64,
+    height: '100%',
+    justifyContent: 'flex-end'
+  },
+  overviewBarValue: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 4
+  },
+  overviewBarTrack: {
+    width: 22,
+    height: 100,
+    borderRadius: 6,
+    backgroundColor: '#f1f5f9',
+    justifyContent: 'flex-end',
+    overflow: 'hidden'
+  },
+  overviewBarFill: {
+    width: '100%',
+    borderRadius: 6,
+    minHeight: 8
+  },
+  overviewBarLabel: {
+    marginTop: 6,
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748b'
+  },
+  overviewDailyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    paddingTop: 8,
+    paddingBottom: 4,
+    minHeight: 120
+  },
+  overviewDailyCol: {
+    width: 42,
+    alignItems: 'center'
+  },
+  overviewDailyBars: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 2,
+    height: 76
+  },
+  overviewDailyBar: {
+    width: 8,
+    borderRadius: 3,
+    minHeight: 4
+  },
+  overviewDailyLabel: {
+    marginTop: 6,
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#64748b'
+  },
+  overviewDailySum: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#0f172a'
+  },
+  overviewLegendRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 14,
+    marginTop: 12
+  },
+  overviewLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5
+  },
+  overviewLegendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4
+  },
+  overviewLegendText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748b'
   },
   moreBody: {
     flexGrow: 1,
@@ -4105,10 +5615,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 10,
-    gap: 8
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 6
   },
   adminNotesCard: {
     backgroundColor: '#fff',
@@ -4190,20 +5700,20 @@ const styles = StyleSheet.create({
   adminNoteSendText: { color: '#fff', fontWeight: '800', fontSize: 12 },
   filterChipRow: {
     flexDirection: 'row',
-    gap: 8
+    gap: 6
   },
   filterChip: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 5,
     backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    minHeight: 48
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    minHeight: 34
   },
   filterChipActive: {
     backgroundColor: '#eff6ff',
@@ -4213,14 +5723,14 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 5,
     backgroundColor: '#f8fafc',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    minHeight: 48
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    minHeight: 34
   },
   filterChipTextWrap: {
     flex: 1,
@@ -4234,10 +5744,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3
   },
   filterChipValue: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: '#334155',
-    marginTop: 1
+    marginTop: 0
   },
   filterChipValueActive: {
     color: '#003580'
@@ -4317,15 +5827,15 @@ const styles = StyleSheet.create({
     paddingRight: 4
   },
   dateSuggestChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 8,
     backgroundColor: '#eff6ff',
     borderWidth: 1,
     borderColor: '#bfdbfe'
   },
   dateSuggestText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
     color: '#003580'
   },
@@ -4337,82 +5847,82 @@ const styles = StyleSheet.create({
   calendarCard: {
     width: '100%',
     backgroundColor: '#ffffff',
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 14,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
   calendarSheetHandle: {
     alignSelf: 'center',
-    width: 36,
-    height: 4,
+    width: 32,
+    height: 3,
     borderRadius: 999,
     backgroundColor: '#cbd5e1',
-    marginBottom: 8,
+    marginBottom: 6,
   },
-  calendarTitle: { fontSize: 14, fontWeight: '800', color: '#0f172a', marginBottom: 2 },
-  calendarHint: { fontSize: 10, color: '#64748b', marginBottom: 8, fontWeight: '600' },
-  calendarChipRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  calendarTitle: { fontSize: 13, fontWeight: '800', color: '#0f172a', marginBottom: 1 },
+  calendarHint: { fontSize: 9, color: '#64748b', marginBottom: 6, fontWeight: '600' },
+  calendarChipRow: { flexDirection: 'row', gap: 6, marginBottom: 6 },
   calendarModeChip: {
     flex: 1,
-    borderRadius: 10,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e2e8f0',
     backgroundColor: '#f8fafc',
-    paddingHorizontal: 8,
-    paddingVertical: 8
+    paddingHorizontal: 6,
+    paddingVertical: 5
   },
   calendarModeChipActive: {
     borderColor: '#93c5fd',
     backgroundColor: '#eff6ff'
   },
-  calendarModeChipText: { fontSize: 11, fontWeight: '700', color: '#64748b', textAlign: 'center' },
+  calendarModeChipText: { fontSize: 10, fontWeight: '700', color: '#64748b', textAlign: 'center' },
   calendarModeChipTextActive: { color: '#003580' },
   calendarMonthRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8
+    marginBottom: 4
   },
-  calendarMonthText: { fontSize: 13, fontWeight: '800', color: '#0f172a' },
-  calendarWeekRow: { flexDirection: 'row', marginBottom: 4 },
+  calendarMonthText: { fontSize: 12, fontWeight: '800', color: '#0f172a' },
+  calendarWeekRow: { flexDirection: 'row', marginBottom: 2 },
   calendarWeekDay: {
     width: '14.28%',
     textAlign: 'center',
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '800',
     color: '#94a3b8'
   },
   calendarDaysWrap: { flexDirection: 'row', flexWrap: 'wrap' },
   calendarDayCell: {
     width: '14.28%',
-    height: 32,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16
+    borderRadius: 14
   },
   calendarDaySelected: { backgroundColor: '#003580' },
   calendarDayInRange: { backgroundColor: '#dbeafe' },
   calendarDayToday: { borderWidth: 1, borderColor: '#93c5fd' },
   calendarDayDisabled: { opacity: 0.35 },
-  calendarDayText: { fontSize: 12, fontWeight: '600', color: '#0f172a' },
+  calendarDayText: { fontSize: 11, fontWeight: '600', color: '#0f172a' },
   calendarDayTextSelected: { color: '#ffffff', fontWeight: '800' },
   calendarDayTextDisabled: { color: '#94a3b8' },
   calendarSuggestRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 10
+    gap: 5,
+    marginTop: 8
   },
   calendarDoneBtn: {
-    marginTop: 12,
+    marginTop: 8,
     alignItems: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
     backgroundColor: '#f1f5f9',
   },
-  calendarDoneText: { color: '#334155', fontWeight: '700', fontSize: 13 },
+  calendarDoneText: { color: '#334155', fontWeight: '700', fontSize: 12 },
   listBody: { padding: 16, paddingBottom: 40, flexGrow: 1 },
   listBodyCompact: { padding: 8, paddingBottom: 88, flexGrow: 1 },
   logTypeRow: { flexDirection: 'row', gap: 6, marginBottom: 6 },
@@ -4511,6 +6021,69 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
     gap: 8
+  },
+  dockLogCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
+    marginBottom: 5,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    gap: 8
+  },
+  dockLogTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 1
+  },
+  dockLogTypeTag: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#0284c7',
+    backgroundColor: '#e0f2fe',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+    overflow: 'hidden'
+  },
+  dockLogTypeTagOut: {
+    color: '#b45309',
+    backgroundColor: '#ffedd5'
+  },
+  dockLogClient: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f172a',
+    flex: 1
+  },
+  dockLogMeta: {
+    fontSize: 10,
+    color: '#64748b',
+    marginTop: 1
+  },
+  dockLogTemp: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#003580'
+  },
+  inwardPodMissingBadge: {
+    marginLeft: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca'
+  },
+  inwardPodMissingBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#b91c1c',
+    letterSpacing: 0.2
   },
   logTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 1 },
   logTypeTag: {
@@ -4784,8 +6357,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold'
   },
   dockReportFilterBar: {
-    paddingBottom: 8,
-    gap: 8,
+    paddingBottom: 4,
+    gap: 6,
   },
   dockReportSearchRow: {
     flexDirection: 'row',
@@ -4793,25 +6366,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 6,
-    gap: 8,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: Platform.OS === 'ios' ? 6 : 3,
+    gap: 6,
   },
   dockReportSearchInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 12,
     color: '#0f172a',
     paddingVertical: 0,
   },
   dockReportDateRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   reportListClearBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 6,
     backgroundColor: '#fee2e2',
     borderWidth: 1,
     borderColor: '#fecaca',
@@ -4824,18 +6397,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-    fontSize: 13,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: Platform.OS === 'ios' ? 6 : 5,
+    fontSize: 12,
     color: '#0f172a',
   },
   dockReportDateBtn: {
     justifyContent: 'center',
-    minHeight: 40,
+    minHeight: 34,
   },
   dockReportDateBtnText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: '#0f172a',
   },
@@ -4844,9 +6417,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   dockReportCalendarBtn: {
-    width: 40,
-    minHeight: 40,
-    borderRadius: 10,
+    width: 34,
+    minHeight: 34,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#bfdbfe',
     backgroundColor: '#eff6ff',
@@ -4855,33 +6428,33 @@ const styles = StyleSheet.create({
   },
   dockReportFilterActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   dockReportFilterBtnPrimary: {
     flex: 1,
     backgroundColor: '#003580',
-    borderRadius: 10,
-    paddingVertical: 10,
+    borderRadius: 8,
+    paddingVertical: 7,
     alignItems: 'center',
   },
   dockReportFilterBtnPrimaryText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: 12,
   },
   dockReportFilterBtnOutline: {
     flex: 1,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#003580',
-    borderRadius: 10,
-    paddingVertical: 10,
+    borderRadius: 8,
+    paddingVertical: 7,
     alignItems: 'center',
   },
   dockReportFilterBtnOutlineText: {
     color: '#003580',
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: 12,
   },
   dockReportPagination: {
     flexDirection: 'row',
@@ -5108,15 +6681,15 @@ const styles = StyleSheet.create({
   },
   reportsModeRow: {
     flexDirection: 'row',
-    marginTop: 8,
-    gap: 6,
+    marginTop: 6,
+    gap: 5,
     flexWrap: 'wrap',
   },
   reportsModeChip: {
     flexGrow: 1,
     flexBasis: '22%',
-    paddingVertical: 7,
-    borderRadius: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
     backgroundColor: '#f1f5f9',
     alignItems: 'center',
   },
@@ -5124,7 +6697,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#003580',
   },
   reportsModeChipText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: '#475569',
   },
@@ -5137,14 +6710,14 @@ const styles = StyleSheet.create({
   },
   doFilterPanel: {
     backgroundColor: '#fff',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
   doFilterRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   reportsListBody: {
     padding: 8,
@@ -5180,24 +6753,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#ffffff',
     marginHorizontal: 8,
-    marginBottom: 8,
-    marginTop: 4,
-    borderRadius: 12,
+    marginBottom: 6,
+    marginTop: 2,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    padding: 8,
+    padding: 5,
+  },
+  overviewSliderWrap: {
+    marginHorizontal: 0,
+    marginTop: 0,
+    marginBottom: 10,
+    flex: 1,
   },
   sliderScroll: {
-    paddingRight: 10,
+    paddingRight: 6,
   },
   sliderCard: {
-    width: 50,
-    height: 52,
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: 6,
     backgroundColor: '#f8fafc',
-    marginRight: 8,
+    marginRight: 5,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
@@ -5206,16 +6785,16 @@ const styles = StyleSheet.create({
     borderColor: '#003580',
   },
   sliderDayName: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: 'bold',
     color: '#64748b',
     textTransform: 'uppercase',
   },
   sliderDayNum: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: 'bold',
     color: '#0f172a',
-    marginTop: 2,
+    marginTop: 1,
   },
   sliderTextActive: {
     color: '#ffffff',
@@ -5224,15 +6803,43 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingLeft: 12,
+    paddingLeft: 8,
     borderLeftWidth: 1,
     borderLeftColor: '#e2e8f0',
-    width: 55,
+    width: 44,
   },
   sliderCalendarBtnText: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: 'bold',
     color: '#003580',
+    marginTop: 1,
+  },
+  logsSliderOuter: {
+    marginHorizontal: 8,
     marginTop: 2,
+    marginBottom: 4,
+    padding: 4,
+    borderRadius: 8,
+  },
+  logsSliderCard: {
+    width: 34,
+    height: 34,
+    marginRight: 4,
+    borderRadius: 5,
+  },
+  logsSliderDayName: {
+    fontSize: 7,
+  },
+  logsSliderDayNum: {
+    fontSize: 11,
+    marginTop: 0,
+  },
+  logsSliderCalendarBtn: {
+    width: 38,
+    paddingLeft: 6,
+  },
+  logsSliderCalendarBtnText: {
+    fontSize: 7,
+    marginTop: 0,
   },
 });

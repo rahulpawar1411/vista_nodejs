@@ -6,6 +6,7 @@ import {
   markInspectionAsSynced,
   getPendingAssignments,
   markAssignmentSynced,
+  markAssignmentAwaitingApproval,
   getPendingInwardLogs,
   getPendingOutwardLogs,
   markInwardAsSynced,
@@ -175,7 +176,8 @@ export const triggerSync = async (apiBaseUrl, token, onSyncProgress = () => {}, 
         } else {
           const resData = await response.json().catch(() => ({}));
           const msg = String(resData.message || resData.error || `Sync failed (${response.status})`);
-          // Client master needs SA approval — remove local pending add so we stop 403 spam.
+          // Client master needs SA approval — keep local row so today's temp
+          // tasks still show the new client; stop retry spam.
           if (
             response.status === 403 &&
             /super admin approval|approval is required/i.test(msg)
@@ -184,10 +186,10 @@ export const triggerSync = async (apiBaseUrl, token, onSyncProgress = () => {}, 
               // Keep local inactive row; SA must approve delete first.
               markAssignmentSynced(item.chamber_id, item.client_name, 'add');
             } else {
-              markAssignmentSynced(item.chamber_id, item.client_name, 'delete');
+              markAssignmentAwaitingApproval(item.chamber_id, item.client_name);
             }
             console.warn(
-              `⚠️ Cleared pending client sync (needs SA approval): ${item.client_name}`
+              `⚠️ Client awaiting SA approval (kept for today's tasks): ${item.client_name}`
             );
             continue;
           }

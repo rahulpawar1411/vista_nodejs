@@ -30,12 +30,21 @@ import {
   BackHandler,
   Dimensions,
   InteractionManager,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import FastTouchable from '../components/FastTouchable';
+
+if (
+  Platform.OS === 'android' &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const BOTTOM_SHEET_MAX_H = Math.round(Dimensions.get('window').height * 0.5);
 const BOTTOM_SHEET_SCROLL_H = Math.max(180, BOTTOM_SHEET_MAX_H - 130);
@@ -88,6 +97,8 @@ import {
   getClientLotMaster,
   addClientLotMaster,
   DEFAULT_CLIENT_LOT_MASTER,
+  upsertLocalActiveAssignment,
+  removeLocalAssignmentHard,
   countPendingSyncItems,
   queueLocalActivity,
   markActivitySynced,
@@ -102,7 +113,7 @@ import { appendLocalFile, multipartRequest } from '../utils/formDataAppendFile';
 import { buildPhotoCaptureMeta, beginPhotoLocationCapture } from '../utils/photoCaptureMeta';
 import SplashScreen from './SplashScreen';
 import { dedupeInventoryLots, chamberZoneStyle, normalizeChamberZone, pickComplianceZone } from '../utils/dedupeInventoryLots';
-import { resolveLogImageUrl, splitLogPhotoPaths } from '../utils/customerLogReportHelpers';
+import { resolveLogImageUrl, resolveLogImageUrlCandidates, splitLogPhotoPaths } from '../utils/customerLogReportHelpers';
 import { buildReportReadingRows, latestReadingQty } from '../utils/buildReportReadingRows';
 import { mergeChamberReportLogs } from '../utils/mergeChamberReportLogs';
 import { refreshTaskReminders } from '../utils/taskNotifications';
@@ -143,20 +154,25 @@ function resolveDoImageUrl(raw, baseUrl, folderHint = 'daily_temp_monitor_images
 }
 
 function DoSensorPhotoView({ rawPath, apiUrl, folderHint = 'daily_temp_monitor_images' }) {
-  const uri = useMemo(() => {
-    const primary = resolveDoImageUrl(rawPath, apiUrl, folderHint);
-    if (primary) return primary;
-    return resolveDoImageUrl(rawPath, PRODUCTION_API_URL, folderHint);
+  const candidates = useMemo(() => {
+    const list = [
+      ...resolveLogImageUrlCandidates(rawPath, apiUrl, folderHint),
+      ...resolveLogImageUrlCandidates(rawPath, PRODUCTION_API_URL, folderHint)
+    ].filter(Boolean);
+    return [...new Set(list)];
   }, [rawPath, apiUrl, folderHint]);
+  const [index, setIndex] = useState(0);
+  const uri = candidates[index] || null;
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(false);
 
   useEffect(() => {
+    setIndex(0);
     setFailed(false);
     setLoading(true);
     setPreviewOpen(false);
-  }, [uri]);
+  }, [rawPath, apiUrl, folderHint]);
 
   if (!uri) {
     return (
@@ -194,6 +210,11 @@ function DoSensorPhotoView({ rawPath, apiUrl, folderHint = 'daily_temp_monitor_i
           onLoadStart={() => setLoading(true)}
           onLoad={() => setLoading(false)}
           onError={() => {
+            if (index + 1 < candidates.length) {
+              setIndex((i) => i + 1);
+              setLoading(true);
+              return;
+            }
             setLoading(false);
             setFailed(true);
           }}
@@ -328,6 +349,11 @@ function LazyNavTabPanel({ isActive, isMounted, paintReady, dataLoading, loading
 export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserUpdate }) {
   const displayName = user.full_name || user.email || 'Data Operator';
   const [chamberLimitOverride, setChamberLimitOverride] = useState(null);
+  const [moreProfileOpen, setMoreProfileOpen] = useState(false);
+  const [profileClientsTotal, setProfileClientsTotal] = useState(null);
+  const [profileClientsLoading, setProfileClientsLoading] = useState(false);
+  const moreProfileAnim = useRef(new Animated.Value(0)).current;
+  const moreProfileChevron = useRef(new Animated.Value(0)).current;
   const chamberLimit = Math.max(
     1,
     parseInt(chamberLimitOverride ?? user?.chamber_limit ?? 4, 10) || 4
@@ -1013,6 +1039,136 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
   const [syncPendingCount, setSyncPendingCount] = useState(0);
   const [syncFailures, setSyncFailures] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+
+  const countActiveClients = useCallback((list, chamberIds = null) => {
+    const allowed =
+      chamberIds && chamberIds.size > 0 ? chamberIds : null;
+    let total = 0;
+    (list || []).forEach((a) => {
+      if (!a) return;
+      const status = String(a.status || 'active').trim().toLowerCase();
+      if (
+        status === 'inactive' ||
+        status === 'deactive' ||
+        status === 'deactivated' ||
+        status === 'disabled' ||
+        status === '0' ||
+        status === 'false'
+      ) {
+        return;
+      }
+      const name = String(a.client_name || '').trim();
+      if (!name || name.toLowerCase() === 'general') return;
+      if (allowed && !allowed.has(Number(a.chamber_id))) return;
+      total += 1;
+    });
+    return total;
+  }, []);
+
+  const totalClientsCount = useMemo(() => {
+    // Assignments list = one row per chamber–client (Master Setup total)
+    return countActiveClients(assignments, null);
+  }, [assignments, countActiveClients]);
+
+  const fetchProfileClientsTotal = useCallback(async () => {
+    setProfileClientsLoading(true);
+    try {
+      let nextCount = null;
+
+      if (apiUrl && token) {
+        try {
+          const res = await fetch(`${apiUrl}/api/chambers/assignments`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json'
+            }
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && Array.isArray(data.data)) {
+            // API already scopes to this DO warehouse — count all active clients
+            nextCount = countActiveClients(data.data, null);
+            try {
+              cacheAssignments(data.data, user?.warehouse_name, user?.warehouse_code);
+            } catch (_) {}
+          }
+        } catch (_) {
+          /* offline — fall through to local */
+        }
+      }
+
+      if (nextCount == null) {
+        const local = getLocalAssignments(user?.warehouse_name, user?.warehouse_code);
+        nextCount = countActiveClients(local, null);
+      }
+
+      setProfileClientsTotal(nextCount);
+    } catch (_) {
+      setProfileClientsTotal(totalClientsCount);
+    } finally {
+      setProfileClientsLoading(false);
+    }
+  }, [
+    apiUrl,
+    token,
+    countActiveClients,
+    user?.warehouse_name,
+    user?.warehouse_code,
+    totalClientsCount
+  ]);
+
+  const toggleMoreProfile = useCallback(() => {
+    LayoutAnimation.configureNext({
+      duration: 280,
+      update: {
+        type: LayoutAnimation.Types.easeInEaseOut
+      },
+      create: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity
+      },
+      delete: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity
+      }
+    });
+    if (moreProfileOpen) {
+      Animated.parallel([
+        Animated.timing(moreProfileChevron, {
+          toValue: 0,
+          duration: 240,
+          useNativeDriver: true
+        }),
+        Animated.timing(moreProfileAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true
+        })
+      ]).start(({ finished }) => {
+        if (finished) setMoreProfileOpen(false);
+      });
+    } else {
+      setMoreProfileOpen(true);
+      moreProfileAnim.setValue(0);
+      fetchProfileClientsTotal();
+      Animated.parallel([
+        Animated.timing(moreProfileChevron, {
+          toValue: 1,
+          duration: 280,
+          useNativeDriver: true
+        }),
+        Animated.timing(moreProfileAnim, {
+          toValue: 1,
+          duration: 280,
+          useNativeDriver: true
+        })
+      ]).start();
+    }
+  }, [
+    moreProfileOpen,
+    moreProfileAnim,
+    moreProfileChevron,
+    fetchProfileClientsTotal
+  ]);
 
   const resolveLogShiftName = (log) => {
     if (!log) return '';
@@ -2048,6 +2204,41 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
         // keep flowing to fetch latest snapshot from server/cache
       }
     }
+
+    // Same-day temp tasks: put approved client into local assignments immediately
+    if (pendingMeta?.chamberId && pendingMeta?.clientName) {
+      const chamber =
+        chambersList.find((c) => Number(c.id) === Number(pendingMeta.chamberId)) || {
+          id: pendingMeta.chamberId,
+          name: pendingMeta.chamberName || `Chamber ${pendingMeta.chamberId}`
+        };
+      if (pendingMeta.action === 'delete') {
+        removeLocalAssignmentHard(pendingMeta.chamberId, pendingMeta.clientName);
+      } else if (pendingMeta.action === 'edit' && pendingMeta.newName) {
+        removeLocalAssignmentHard(pendingMeta.chamberId, pendingMeta.clientName);
+        upsertLocalActiveAssignment(
+          chamber.id,
+          chamber.name,
+          pendingMeta.newName,
+          pendingMeta.remark || 'Approved by Super Admin',
+          pendingMeta.chamberType || 'Frozen',
+          user?.warehouse_name,
+          user?.warehouse_code
+        );
+      } else if (pendingMeta.action === 'add') {
+        upsertLocalActiveAssignment(
+          chamber.id,
+          chamber.name,
+          pendingMeta.clientName,
+          pendingMeta.remark || 'Approved by Super Admin',
+          pendingMeta.chamberType || 'Frozen',
+          user?.warehouse_name,
+          user?.warehouse_code
+        );
+      }
+      loadLocalAssignmentsData(chambersList);
+    }
+
     await fetchAndLoadAssignments();
     await clearPendingClientMasterOp(recordId);
     loadLocalAssignmentsData(chambersList);
@@ -2595,6 +2786,20 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       }
       if (checkRes.ok && checkData.status === 'Pending') {
         await persistPendingClientMasterOp(recordId, pendingPayload);
+        if (permAction === 'add') {
+          upsertLocalActiveAssignment(
+            chamber.id,
+            chamber.name,
+            clientName,
+            resolvedRemark,
+            pendingPayload.chamberType,
+            user?.warehouse_name,
+            user?.warehouse_code,
+            null,
+            { awaitingApproval: true }
+          );
+          loadLocalAssignmentsData(chambersList);
+        }
         if (!silent) {
           Alert.alert(
             'Waiting for Super Admin',
@@ -2647,6 +2852,21 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       }
 
       await persistPendingClientMasterOp(recordId, pendingPayload);
+      // Same day: show new client on temperature tasks as soon as DO requests add
+      if (permAction === 'add') {
+        upsertLocalActiveAssignment(
+          chamber.id,
+          chamber.name,
+          clientName,
+          resolvedRemark,
+          pendingPayload.chamberType,
+          user?.warehouse_name,
+          user?.warehouse_code,
+          null,
+          { awaitingApproval: true }
+        );
+        loadLocalAssignmentsData(chambersList);
+      }
       refreshPermissionNotifications();
       if (!silent) {
         Alert.alert(
@@ -3001,6 +3221,16 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
           `"${clientLabel}" on ${chamberLabel} ${pendingMeta?.action === 'add' ? 'added' : 'updated'} after Super Admin approval.`
         );
       } else {
+        let pendingMeta = null;
+        try {
+          const raw = await AsyncStorage.getItem(PENDING_CLIENT_MASTER_KEY);
+          const map = raw ? JSON.parse(raw) : {};
+          pendingMeta = map[String(notif.record_id)] || null;
+        } catch (_) {}
+        if (pendingMeta?.action === 'add' && pendingMeta?.chamberId && pendingMeta?.clientName) {
+          removeLocalAssignmentHard(pendingMeta.chamberId, pendingMeta.clientName);
+          loadLocalAssignmentsData(chambersList);
+        }
         await clearPendingClientMasterOp(notif.record_id);
         await markPermissionNotificationComplete(notif.id);
         Alert.alert(
@@ -3099,13 +3329,8 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       const data = await response.json();
       
       if (data.success && Array.isArray(data.data)) {
-        const demoNames = new Set(
-          DEFAULT_CLIENT_LOT_MASTER.map((n) => String(n).trim().toLowerCase())
-        );
-        const cleaned = data.data.filter(
-          (a) => !demoNames.has(String(a?.client_name || '').trim().toLowerCase())
-        );
-        cacheAssignments(cleaned, user?.warehouse_name);
+        // Keep all server clients (including names that match suggestion defaults)
+        cacheAssignments(data.data, user?.warehouse_name);
         purgeAutoSeededMasterLotsOnce();
       }
 
@@ -4067,7 +4292,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
           ? `Client changes and chamber type for "${chamber.name}" were sent to Super Admin. They will apply automatically after approval.`
           : typeChanged
             ? `Chamber type for "${chamber.name}" will update after Super Admin allows.`
-            : `Client changes for "${chamber.name}" were sent to Super Admin. They will appear automatically after approval.`
+            : `Client changes for "${chamber.name}" were sent to Super Admin. New clients appear in today's temperature tasks now; Super Admin approval confirms them on the server.`
       );
     }
     return requested > 0 || typeChanged;
@@ -8780,17 +9005,76 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
   };
 
   const renderMoreView = () => {
+    const profileRows = [
+      { label: 'Role', value: 'Data Operator' },
+      { label: 'Full Name', value: user?.full_name || displayName || '—' },
+      { label: 'Email', value: user?.email || '—' },
+      { label: 'Phone', value: user?.phone_no || '—' },
+      { label: 'Warehouse', value: user?.warehouse_name || '—' },
+      { label: 'Warehouse Code', value: user?.warehouse_code || '—' },
+      { label: 'Chamber Limit', value: String(chamberLimit) },
+      {
+        label: 'Total Clients',
+        value: profileClientsLoading
+          ? '…'
+          : String(
+              profileClientsTotal != null ? profileClientsTotal : totalClientsCount
+            )
+      }
+    ];
+    const chevronRotate = moreProfileChevron.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '180deg']
+    });
+
     return (
       <ScrollView contentContainerStyle={styles.moreContainer} showsVerticalScrollIndicator={false}>
-        <View style={styles.profileCard}>
-          <View style={styles.profileAvatar}>
-            <Ionicons name="person" size={32} color="#003580" />
-          </View>
-          <View style={styles.profileMeta}>
-            <Text style={styles.profileName}>{displayName}</Text>
-            <Text style={styles.profileRole}>Data Operator</Text>
-            <Text style={styles.profileEmail}>{user.email || 'operator@reeferon.com'}</Text>
-          </View>
+        <View style={styles.moreSectionCard}>
+          <TouchableOpacity
+            style={styles.moreProfileHeader}
+            onPress={toggleMoreProfile}
+            activeOpacity={0.85}
+          >
+            <View style={styles.profileAvatar}>
+              <Ionicons name="person" size={32} color="#003580" />
+            </View>
+            <View style={[styles.profileMeta, { flex: 1 }]}>
+              <Text style={styles.profileName}>{displayName}</Text>
+              <Text style={styles.profileRole}>Data Operator</Text>
+              <Text style={styles.profileEmail}>{user.email || 'operator@reeferon.com'}</Text>
+            </View>
+            <Animated.View style={{ transform: [{ rotate: chevronRotate }] }}>
+              <Ionicons name="chevron-down" size={22} color="#64748b" />
+            </Animated.View>
+          </TouchableOpacity>
+
+          {moreProfileOpen ? (
+            <Animated.View
+              style={[
+                styles.moreProfileDropBody,
+                { opacity: moreProfileAnim }
+              ]}
+            >
+              {profileRows.map((row, idx) => (
+                <View
+                  key={row.label}
+                  style={[
+                    styles.doProfileRow,
+                    idx === profileRows.length - 1 && {
+                      borderBottomWidth: 0,
+                      marginBottom: 0,
+                      paddingBottom: 0
+                    }
+                  ]}
+                >
+                  <Text style={styles.doProfileLabel}>{row.label}</Text>
+                  <Text style={styles.doProfileValue} numberOfLines={2}>
+                    {row.value}
+                  </Text>
+                </View>
+              ))}
+            </Animated.View>
+          ) : null}
         </View>
 
         <View style={styles.moreSectionCard}>
@@ -12929,7 +13213,24 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
     </View>
   );
 
-  const renderProfileView = () => (
+  const renderProfileView = () => {
+    const profileRows = [
+      { label: 'Role', value: 'Data Operator' },
+      { label: 'Full Name', value: user?.full_name || displayName || '—' },
+      { label: 'Email', value: user?.email || '—' },
+      { label: 'Phone', value: user?.phone_no || '—' },
+      { label: 'Warehouse', value: user?.warehouse_name || '—' },
+      { label: 'Warehouse Code', value: user?.warehouse_code || '—' },
+      { label: 'Chamber Limit', value: String(chamberLimit) },
+      {
+        label: 'Total Clients',
+        value: String(
+          profileClientsTotal != null ? profileClientsTotal : totalClientsCount
+        )
+      }
+    ];
+
+    return (
     <ScrollView
       contentContainerStyle={[styles.moreContainer, { paddingBottom: 100 }]}
       showsVerticalScrollIndicator={false}
@@ -12948,6 +13249,24 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       </View>
 
       <View style={styles.moreSectionCard}>
+        <Text style={styles.moreSectionTitle}>Profile</Text>
+        {profileRows.map((row, idx) => (
+          <View
+            key={row.label}
+            style={[
+              styles.doProfileRow,
+              idx === profileRows.length - 1 && { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }
+            ]}
+          >
+            <Text style={styles.doProfileLabel}>{row.label}</Text>
+            <Text style={styles.doProfileValue} numberOfLines={2}>
+              {row.value}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.moreSectionCard}>
         <Text style={styles.moreSectionTitle}>Master data policy</Text>
         <Text style={{ fontSize: 12, color: '#475569', lineHeight: 18, marginBottom: 8 }}>
           Chambers: Super Admin must approve add, delete, or edit.
@@ -12956,28 +13275,9 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
           Clients: Changes save immediately and sync; Super Admin is notified only.
         </Text>
       </View>
-
-      <View style={styles.moreSectionCard}>
-        <Text style={styles.moreSectionTitle}>Assignment</Text>
-        <View style={styles.syncStatusRow}>
-          <Text style={styles.syncStatusLabel}>Warehouse</Text>
-          <Text style={{ fontSize: 13, fontWeight: '700', color: '#0f172a' }}>
-            {user?.warehouse_name || 'Generic'}
-          </Text>
-        </View>
-        <View style={[styles.syncStatusRow, { marginTop: 10 }]}>
-          <Text style={styles.syncStatusLabel}>Section</Text>
-          <Text style={{ fontSize: 13, fontWeight: '700', color: '#0f172a' }}>
-            {navSection === 'inwards'
-              ? 'Inwards'
-              : navSection === 'outwards'
-                ? 'Outwards'
-                : 'Daily Tasks'}
-          </Text>
-        </View>
-      </View>
     </ScrollView>
-  );
+    );
+  };
 
   // Hamburger Drawer Menu Modal
   const renderDrawerModal = () => {
@@ -16571,6 +16871,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
+  moreProfileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 0,
+    paddingBottom: 0,
+    borderBottomWidth: 0
+  },
+  moreProfileDropBody: {
+    marginTop: 12,
+    paddingTop: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e2e8f0'
+  },
   moreMasterAddBtn: {
     width: 32,
     height: 32,
@@ -16613,6 +16926,29 @@ const styles = StyleSheet.create({
     color: '#64748b',
     marginTop: 1,
     fontWeight: '600',
+  },
+  doProfileRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
+    marginBottom: 2
+  },
+  doProfileLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+    minWidth: 110
+  },
+  doProfileValue: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+    textAlign: 'right'
   },
   syncStatusRow: {
     flexDirection: 'row',

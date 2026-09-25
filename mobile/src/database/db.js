@@ -316,6 +316,8 @@ export const addClientLotMaster = (clientName) => {
 
 /**
  * Caches the client assignments retrieved from the server.
+ * Keeps local pending / awaiting-approval rows so a DO-added client still
+ * appears in today's temperature tasks until Super Admin approves.
  * @param {Array} assignments - Array of client assignments [{ chamber_id, chamber_name, client_name }]
  */
 export const cacheAssignments = (assignments, warehouseName, warehouseCode = null) => {
@@ -323,13 +325,19 @@ export const cacheAssignments = (assignments, warehouseName, warehouseCode = nul
   try {
     const wh = String(warehouseName || '').trim();
     const whCode = String(warehouseCode || '').trim();
-    // Preserve pending assignments
-    const pending = db.getAllSync("SELECT * FROM local_assignments WHERE sync_status = 'pending';");
-    
-    // Start transaction to clear and reload assignments
+    // Capture before wipe — pending sync + DO adds waiting for SA approval
+    const preserve = db.getAllSync(
+      `SELECT * FROM local_assignments
+       WHERE sync_status = 'pending'
+          OR LOWER(TRIM(IFNULL(action, ''))) = 'awaiting_approval';`
+    );
+
     db.execSync('DELETE FROM local_assignments;');
-    
+
+    const serverKeys = new Set();
     for (const item of assignments) {
+      const key = `${Number(item.chamber_id)}|${String(item.client_name || '').trim().toLowerCase()}`;
+      serverKeys.add(key);
       db.runSync(
         "INSERT INTO local_assignments (chamber_id, chamber_name, client_name, client_code, chamber_type, status, sync_status, action, warehouse_name, warehouse_code) VALUES (?, ?, ?, ?, ?, ?, 'synced', 'none', ?, ?);",
         [
@@ -345,33 +353,45 @@ export const cacheAssignments = (assignments, warehouseName, warehouseCode = nul
       );
     }
 
-    // Re-insert pending assignments (skip old demo auto-seed rows)
-    const demoNames = new Set(
-      DEFAULT_CLIENT_LOT_MASTER.map((n) => String(n).trim().toLowerCase())
-    );
-    for (const item of pending) {
+    for (const item of preserve) {
       const remark = String(item.remark || '').trim().toLowerCase();
-      const cname = String(item.client_name || '').trim().toLowerCase();
-      if (
-        remark === 'default client master' ||
-        remark === 'master client lot' ||
-        demoNames.has(cname)
-      ) {
+      // Skip only true auto-seed junk — do NOT drop real clients that share demo names
+      if (remark === 'default client master' || remark === 'master client lot') {
         continue;
       }
-      if (item.action === 'add') {
-        db.runSync(
-          "INSERT OR REPLACE INTO local_assignments (chamber_id, chamber_name, client_name, client_code, remark, chamber_type, status, sync_status, action, warehouse_name, warehouse_code) VALUES (?, ?, ?, ?, ?, ?, 'active', 'pending', 'add', ?, ?);",
-          [item.chamber_id, item.chamber_name, item.client_name, item.client_code || null, item.remark, item.chamber_type || 'Frozen', item.warehouse_name || wh, item.warehouse_code || whCode || null]
-        );
-      } else if (item.action === 'delete') {
+      const key = `${Number(item.chamber_id)}|${String(item.client_name || '').trim().toLowerCase()}`;
+      if (serverKeys.has(key) && String(item.action || '').toLowerCase() !== 'delete') {
+        // Server already has this client; keep server row
+        continue;
+      }
+      if (item.action === 'delete') {
         db.runSync(
           "INSERT OR REPLACE INTO local_assignments (chamber_id, chamber_name, client_name, remark, status, sync_status, action, warehouse_name) VALUES (?, ?, ?, ?, 'inactive', 'pending', 'delete', ?);",
           [item.chamber_id, item.chamber_name, item.client_name, item.remark, item.warehouse_name || wh]
         );
+      } else {
+        const action = String(item.action || '').toLowerCase() === 'awaiting_approval'
+          ? 'awaiting_approval'
+          : (item.action || 'add');
+        const syncStatus = action === 'awaiting_approval' ? 'synced' : 'pending';
+        db.runSync(
+          "INSERT OR REPLACE INTO local_assignments (chamber_id, chamber_name, client_name, client_code, remark, chamber_type, status, sync_status, action, warehouse_name, warehouse_code) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?);",
+          [
+            item.chamber_id,
+            item.chamber_name,
+            item.client_name,
+            item.client_code || null,
+            item.remark,
+            item.chamber_type || 'Frozen',
+            syncStatus,
+            action,
+            item.warehouse_name || wh,
+            item.warehouse_code || whCode || null
+          ]
+        );
       }
     }
-    console.log('🌱 Successfully cached assignments locally in SQLite (preserved pending).');
+    console.log('🌱 Successfully cached assignments locally in SQLite (preserved pending/awaiting).');
   } catch (error) {
     console.error('❌ Failed to cache assignments:', error);
   }
@@ -1017,6 +1037,78 @@ export const addLocalAssignment = (chamberId, chamberName, clientName, remark, c
 };
 
 /**
+ * Show client on today's temp tasks immediately (DO add / after SA approve).
+ * Uses awaiting_approval so sync does not POST until server has the row.
+ */
+export const upsertLocalActiveAssignment = (
+  chamberId,
+  chamberName,
+  clientName,
+  remark,
+  chamberType,
+  warehouseName,
+  warehouseCode = null,
+  clientCode = null,
+  { awaitingApproval = false } = {}
+) => {
+  if (!db) return false;
+  try {
+    const wh = String(warehouseName || '').trim();
+    const action = awaitingApproval ? 'awaiting_approval' : 'none';
+    db.runSync(
+      `INSERT OR REPLACE INTO local_assignments
+       (chamber_id, chamber_name, client_name, client_code, remark, chamber_type, status, sync_status, action, warehouse_name, warehouse_code)
+       VALUES (?, ?, ?, ?, ?, ?, 'active', 'synced', ?, ?, ?);`,
+      [
+        parseInt(chamberId, 10),
+        chamberName,
+        clientName,
+        clientCode || null,
+        remark || '',
+        chamberType || 'Frozen',
+        action,
+        wh,
+        warehouseCode || null
+      ]
+    );
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to upsert local assignment:', error);
+    return false;
+  }
+};
+
+/** Hard-remove a local chamber client (e.g. SA denied an add). */
+export const removeLocalAssignmentHard = (chamberId, clientName) => {
+  if (!db) return false;
+  try {
+    db.runSync(
+      'DELETE FROM local_assignments WHERE chamber_id = ? AND LOWER(TRIM(client_name)) = LOWER(TRIM(?));',
+      [parseInt(chamberId, 10), String(clientName || '').trim()]
+    );
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to remove local assignment:', error);
+    return false;
+  }
+};
+
+/** Keep local row for tasks; stop retrying POST until SA approves. */
+export const markAssignmentAwaitingApproval = (chamberId, clientName) => {
+  if (!db) return;
+  try {
+    db.runSync(
+      `UPDATE local_assignments
+       SET sync_status = 'synced', action = 'awaiting_approval', status = 'active'
+       WHERE chamber_id = ? AND LOWER(TRIM(client_name)) = LOWER(TRIM(?));`,
+      [parseInt(chamberId, 10), String(clientName || '').trim()]
+    );
+  } catch (error) {
+    console.error('❌ Failed to mark assignment awaiting approval:', error);
+  }
+};
+
+/**
  * For each chamber with no active clients yet, seed the default client master list.
  * After that, DO customizes per chamber (add/edit/delete) and those changes stick.
  * @returns {number} how many client rows inserted
@@ -1060,29 +1152,19 @@ export const seedDefaultClientsForEmptyChambers = (chambers) => {
 };
 
 /**
- * Remove auto-seeded example client rows (by remark or known demo names).
+ * Remove auto-seeded example client rows (by seed remark only).
+ * Do not delete by demo display names — real clients may reuse those names.
  */
 export const purgeAutoSeededMasterLotsOnce = () => {
   if (!db) return 0;
   try {
-    let n = 0;
     const byRemark = db.runSync(
       `DELETE FROM local_assignments
        WHERE remark IN (?, ?)
           OR LOWER(TRIM(IFNULL(remark, ''))) = 'default client master';`,
       ['Master client lot', 'Default client master']
     );
-    n += Number(byRemark?.changes || 0);
-
-    // Also wipe known demo lot names left after sync (remark often dropped)
-    for (const name of DEFAULT_CLIENT_LOT_MASTER) {
-      const r = db.runSync(
-        `DELETE FROM local_assignments WHERE LOWER(TRIM(client_name)) = LOWER(?)`,
-        [name]
-      );
-      n += Number(r?.changes || 0);
-    }
-
+    const n = Number(byRemark?.changes || 0);
     if (n > 0) console.log(`🧹 Purged ${n} auto-seeded chamber client lots.`);
     return n;
   } catch (error) {

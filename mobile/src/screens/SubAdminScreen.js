@@ -75,16 +75,10 @@ import SubAdminAdminPanel from '../components/SubAdminAdminPanel';
 import SubAdminDoMasterSetup from '../components/SubAdminDoMasterSetup';
 import SavedChangesPopup from '../components/SavedChangesPopup';
 import { generateClientCode } from '../utils/generateClientCode';
+import { generateWarehouseCode } from '../utils/generateWarehouseCode';
 
-function suggestWarehouseCode(name) {
-  const slug = String(name || '')
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .replace(/-+/g, '-')
-    .slice(0, 12);
-  return slug ? `WH-${slug}` : '';
+function suggestWarehouseCode(name, city, existingCodes = []) {
+  return generateWarehouseCode(name, city, existingCodes);
 }
 
 function parseMasterList(payload) {
@@ -2181,7 +2175,9 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     setSelectedDoProfile(null);
     warehouseCodeManualRef.current = true;
     setWarehouseForm({
-      warehouse_code: row?.warehouse_code || suggestWarehouseCode(row?.warehouse_name),
+      warehouse_code:
+        row?.warehouse_code ||
+        suggestWarehouseCode(row?.warehouse_name, row?.city, []),
       warehouse_name: row?.warehouse_name || '',
       city: row?.city || ''
     });
@@ -2222,11 +2218,14 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
   const saveWarehouseCatalog = useCallback(async () => {
     const warehouse_name = String(warehouseForm.warehouse_name || '').trim();
     const city = String(warehouseForm.city || '').trim();
+    const existingCodes = (homeCatalogWarehouses || []).map((w) => w.warehouse_code);
     let warehouse_code = String(warehouseForm.warehouse_code || '').trim().toUpperCase();
     if (warehouse_code && !warehouse_code.startsWith('WH-')) {
       warehouse_code = `WH-${warehouse_code}`;
     }
-    if (!warehouse_code) warehouse_code = suggestWarehouseCode(warehouse_name);
+    if (!warehouse_code) {
+      warehouse_code = suggestWarehouseCode(warehouse_name, '', existingCodes);
+    }
     if (!warehouse_name) {
       Alert.alert('Missing fields', 'Warehouse name is required.');
       return;
@@ -2293,6 +2292,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     warehouseForm,
     catalogModal.mode,
     catalogModal.id,
+    homeCatalogWarehouses,
     closeCatalogModal,
     showSavedChanges,
     loadHomeOverview,
@@ -2485,7 +2485,12 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
       return;
     }
     if (warehouseCodeManualRef.current) return;
-    const next = suggestWarehouseCode(warehouseForm.warehouse_name);
+    const existingCodes = (homeCatalogWarehouses || []).map((w) => w.warehouse_code);
+    const next = suggestWarehouseCode(
+      warehouseForm.warehouse_name,
+      '',
+      existingCodes
+    );
     if (next !== warehouseForm.warehouse_code) {
       setWarehouseForm((p) => ({ ...p, warehouse_code: next }));
     }
@@ -2494,7 +2499,8 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     catalogModal.kind,
     catalogModal.mode,
     warehouseForm.warehouse_name,
-    warehouseForm.warehouse_code
+    warehouseForm.warehouse_code,
+    homeCatalogWarehouses
   ]);
 
   useEffect(() => {
@@ -5019,7 +5025,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
             <Text style={styles.denySub}>
               {catalogModal.kind === 'client'
                 ? 'Company in the catalog. Optional warehouse ties it to a site.'
-                : 'Catalog site. Code is WH-… and stays unique.'}
+                : 'Name auto-makes WH-PUNE-01, WH-PUNE-02… City is optional only.'}
             </Text>
             <ScrollView
               style={styles.customerModalScroll}
@@ -5110,30 +5116,28 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                       warehouseCodeManualRef.current = false;
                       setWarehouseForm((p) => ({ ...p, warehouse_name: txt }));
                     }}
-                    placeholder="Warehouse name"
+                    placeholder="Warehouse name (e.g. Pune)"
+                    placeholderTextColor="#94a3b8"
+                  />
+                  <TextInput
+                    style={styles.customerInput}
+                    value={warehouseForm.city}
+                    onChangeText={(txt) => {
+                      setWarehouseForm((p) => ({ ...p, city: txt }));
+                    }}
+                    placeholder="City (optional)"
                     placeholderTextColor="#94a3b8"
                   />
                   <TextInput
                     style={[
                       styles.customerInput,
-                      catalogModal.mode === 'edit' && styles.customerInputLocked
+                      styles.customerInputLocked
                     ]}
                     value={warehouseForm.warehouse_code}
-                    onChangeText={(txt) => {
-                      warehouseCodeManualRef.current = true;
-                      setWarehouseForm((p) => ({ ...p, warehouse_code: txt.toUpperCase() }));
-                    }}
-                    placeholder="Code (WH-… auto)"
+                    placeholder="Code auto WH-PUNE-01"
                     placeholderTextColor="#94a3b8"
                     autoCapitalize="characters"
-                    editable={catalogModal.mode !== 'edit'}
-                  />
-                  <TextInput
-                    style={styles.customerInput}
-                    value={warehouseForm.city}
-                    onChangeText={(txt) => setWarehouseForm((p) => ({ ...p, city: txt }))}
-                    placeholder="City (optional)"
-                    placeholderTextColor="#94a3b8"
+                    editable={false}
                   />
                 </>
               )}
