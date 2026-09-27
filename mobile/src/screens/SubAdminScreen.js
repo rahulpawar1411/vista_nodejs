@@ -36,7 +36,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import FastTouchable from '../components/FastTouchable';
-import { dedupeInventoryLots } from '../utils/dedupeInventoryLots';
+import { dedupeInventoryLots, pickComplianceZone, normalizeChamberZone, getChamberTempRange, isChamberTempOutOfRange, getChamberTempDeviation } from '../utils/dedupeInventoryLots';
 import { buildReportReadingRows, latestReadingQty } from '../utils/buildReportReadingRows';
 import { PhotoGridWithLocation } from '../components/LogDetailPhotoLocation';
 import {
@@ -2989,12 +2989,27 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
       const dateLabel = formatDateLabel(
         String(item.formatted_date || item.entry_date || '').slice(0, 10) || 'All'
       );
-      const temp =
+      const tempNum =
         item.box_temp != null
-          ? `${item.box_temp}°C`
+          ? Number(item.box_temp)
           : item.chamber_temp != null
-            ? `${item.chamber_temp}°C`
-            : '—';
+            ? Number(item.chamber_temp)
+            : null;
+      const temp =
+        tempNum != null && Number.isFinite(tempNum)
+          ? `${tempNum % 1 === 0 ? tempNum : tempNum.toFixed(1)}°C`
+          : '—';
+      const chamberType =
+        pickComplianceZone(item.chamber_type) ||
+        normalizeChamberZone(item.chamber_type) ||
+        String(item.chamber_type || '').trim() ||
+        null;
+      const deviation =
+        tempNum != null && Number.isFinite(tempNum)
+          ? getChamberTempDeviation(tempNum, chamberType)
+          : null;
+      const outOfRange = deviation != null;
+      const alertColor = '#dc2626';
       return (
         <TouchableOpacity
           style={styles.dailyCard}
@@ -3014,7 +3029,28 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                 {item.warehouse_name ? ` · ${item.warehouse_name}` : ''}
               </Text>
             </View>
-            <Text style={styles.dailyTemp}>{temp}</Text>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={[styles.dailyTemp, outOfRange && { color: alertColor }]}>{temp}</Text>
+              {chamberType ? (
+                <View style={styles.logChamberTypeRow}>
+                  {deviation === 'low' ? (
+                    <Text style={[styles.logChamberTypeArrow, { color: alertColor }]}>{'<'}</Text>
+                  ) : null}
+                  {deviation === 'high' ? (
+                    <Text style={[styles.logChamberTypeArrow, { color: alertColor }]}>{'>'}</Text>
+                  ) : null}
+                  <Text
+                    style={[
+                      styles.logChamberTypeHint,
+                      outOfRange && { color: alertColor, fontWeight: '800' }
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {chamberType}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </View>
         </TouchableOpacity>
       );
@@ -4508,6 +4544,13 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                     {[
                         ['Client', selectedLog.client_name],
                         ['Chamber', selectedLog.chamber_name],
+                        [
+                          'Chamber type',
+                          pickComplianceZone(selectedLog.chamber_type) ||
+                            normalizeChamberZone(selectedLog.chamber_type) ||
+                            String(selectedLog.chamber_type || '').trim() ||
+                            null
+                        ],
                         ['Warehouse', selectedLog.warehouse_name],
                       [
                         'Date',
@@ -4540,14 +4583,53 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                               ? String(selectedLog.created_at).replace('T', ' ').slice(0, 19)
                               : null)
                         ]
-                    ].map(([label, value]) =>
-                  value != null && String(value).trim() !== '' ? (
-                    <View key={label} style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>{label}</Text>
-                      <Text style={styles.detailValue}>{String(value)}</Text>
-                    </View>
-                  ) : null
-                )}
+                    ].map(([label, value]) => {
+                      if (value == null || String(value).trim() === '') return null;
+                      const typeForCheck =
+                        pickComplianceZone(selectedLog.chamber_type) ||
+                        normalizeChamberZone(selectedLog.chamber_type) ||
+                        String(selectedLog.chamber_type || '').trim();
+                      const tempForCheck =
+                        selectedLog.box_temp != null
+                          ? Number(selectedLog.box_temp)
+                          : selectedLog.chamber_temp != null
+                            ? Number(selectedLog.chamber_temp)
+                            : null;
+                      const deviation =
+                        tempForCheck != null && Number.isFinite(tempForCheck)
+                          ? getChamberTempDeviation(tempForCheck, typeForCheck)
+                          : null;
+                      const oor = deviation != null;
+                      const emphasize =
+                        oor && (label === 'Box temp' || label === 'Chamber type');
+                      const range = getChamberTempRange(typeForCheck);
+                      const typeDisplay =
+                        label === 'Chamber type' && deviation === 'low'
+                          ? `< ${value}`
+                          : label === 'Chamber type' && deviation === 'high'
+                            ? `> ${value}`
+                            : String(value);
+                      return (
+                        <View key={label} style={styles.detailRow}>
+                          <Text style={styles.detailLabel}>{label}</Text>
+                          <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                            <Text
+                              style={[
+                                styles.detailValue,
+                                emphasize && { color: '#dc2626', fontWeight: '800' }
+                              ]}
+                            >
+                              {typeDisplay}
+                            </Text>
+                            {oor && label === 'Box temp' && range ? (
+                              <Text style={{ fontSize: 10, color: '#dc2626', fontWeight: '700', marginTop: 2 }}>
+                                {deviation === 'low' ? '< kam' : '> zyada'} · {range.label}
+                              </Text>
+                            ) : null}
+                          </View>
+                        </View>
+                      );
+                    })}
                   </>
                 )}
               </ScrollView>
@@ -6678,6 +6760,23 @@ const styles = StyleSheet.create({
   dailyTextCol: { flex: 1, minWidth: 0 },
   dailyChamber: { fontSize: 12, fontWeight: '800', color: '#0f172a' },
   dailyTemp: { fontSize: 13, fontWeight: '800', color: '#003580' },
+  logChamberTypeHint: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#64748b',
+    marginTop: 0
+  },
+  logChamberTypeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+    gap: 2
+  },
+  logChamberTypeArrow: {
+    fontSize: 11,
+    fontWeight: '900',
+    lineHeight: 12
+  },
   dailyMetaLine: { fontSize: 10, color: '#64748b', fontWeight: '600', marginTop: 1 },
   logCard: {
     flexDirection: 'row',

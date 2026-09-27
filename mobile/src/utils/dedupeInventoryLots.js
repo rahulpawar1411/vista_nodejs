@@ -60,6 +60,41 @@ export function chamberZoneStyle(raw) {
   return { type, color: '#64748b', bg: '#f1f5f9' };
 }
 
+/** Compliance band for Frozen / Chilled / Dry / Other chamber types. */
+export function getChamberTempRange(chamberType) {
+  const zone = pickComplianceZone(chamberType) || normalizeChamberZone(chamberType);
+  if (zone === 'Frozen') return { zone, min: null, max: -18, label: '≤ -18°C' };
+  if (zone === 'Chilled') return { zone, min: -5, max: 5, label: '-5°C to 5°C' };
+  if (zone === 'Dry') return { zone, min: 15, max: 25, label: '15°C to 25°C' };
+  if (zone === 'Other') return { zone, min: 0, max: 40, label: '0°C to 40°C' };
+  return null;
+}
+
+/** True when temp is outside the chamber-type compliance band. */
+export function isChamberTempOutOfRange(temp, chamberType) {
+  return getChamberTempDeviation(temp, chamberType) != null;
+}
+
+/**
+ * How temp sits vs chamber type band.
+ * @returns {'low'|'high'|null} low = kam (<), high = zyada (>)
+ */
+export function getChamberTempDeviation(temp, chamberType) {
+  const range = getChamberTempRange(chamberType);
+  if (!range) return null;
+  if (temp == null || temp === '') return null;
+  const t = Number(temp);
+  if (!Number.isFinite(t)) return null;
+  // Frozen: only upper limit (colder is OK)
+  if (range.min == null) {
+    if (t > range.max) return 'high';
+    return null;
+  }
+  if (t < range.min) return 'low';
+  if (t > range.max) return 'high';
+  return null;
+}
+
 export function dedupeInventoryLots(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return [];
   const map = new Map();

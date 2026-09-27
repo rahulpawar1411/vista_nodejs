@@ -112,7 +112,7 @@ import { compressImageOnly } from '../utils/compressImage';
 import { appendLocalFile, multipartRequest } from '../utils/formDataAppendFile';
 import { buildPhotoCaptureMeta, beginPhotoLocationCapture } from '../utils/photoCaptureMeta';
 import SplashScreen from './SplashScreen';
-import { dedupeInventoryLots, chamberZoneStyle, normalizeChamberZone, pickComplianceZone } from '../utils/dedupeInventoryLots';
+import { dedupeInventoryLots, chamberZoneStyle, normalizeChamberZone, pickComplianceZone, getChamberTempRange, isChamberTempOutOfRange } from '../utils/dedupeInventoryLots';
 import { resolveLogImageUrl, resolveLogImageUrlCandidates, splitLogPhotoPaths } from '../utils/customerLogReportHelpers';
 import { buildReportReadingRows, latestReadingQty } from '../utils/buildReportReadingRows';
 import { mergeChamberReportLogs } from '../utils/mergeChamberReportLogs';
@@ -3921,6 +3921,20 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       return;
     }
 
+    const tempVal = parseFloat(tempInput);
+    const range = getChamberTempRange(selectedChamberType);
+    if (range && isChamberTempOutOfRange(tempVal, selectedChamberType)) {
+      Alert.alert(
+        'Out-of-Range Temperature',
+        `${selectedChamberType} chamber: ${tempVal}°C is outside the allowed range (${range.label}).\n\nContinue anyway?`,
+        [
+          { text: 'Fix Temp', style: 'cancel' },
+          { text: 'Continue', style: 'destructive', onPress: () => setShowSubmitConfirmModal(true) }
+        ]
+      );
+      return;
+    }
+
     setShowSubmitConfirmModal(true);
   };
 
@@ -4572,10 +4586,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
     if (hasLogs) {
       chamberLogs.forEach(log => {
         const currentType = log.chamber_type || type;
-        if (currentType === 'Frozen' && log.box_temp > -18) hasAlert = true;
-        if (currentType === 'Chilled' && (log.box_temp < -5 || log.box_temp > 5)) hasAlert = true;
-        if (currentType === 'Dry' && (log.box_temp < 15 || log.box_temp > 25)) hasAlert = true;
-        // 'Other' type has no alert constraints
+        if (isChamberTempOutOfRange(log.box_temp, currentType)) hasAlert = true;
       });
     }
 
@@ -4666,9 +4677,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       let hasWarning = false;
       if (isCompleted) {
         const checkType = log.chamber_type || pattern.type;
-        if (checkType === 'Frozen' && log.box_temp > -18) hasWarning = true;
-        if (checkType === 'Chilled' && (log.box_temp < -5 || log.box_temp > 5)) hasWarning = true;
-        if (checkType === 'Dry' && (log.box_temp < 15 || log.box_temp > 25)) hasWarning = true;
+        hasWarning = isChamberTempOutOfRange(log.box_temp, checkType);
       }
 
       if (targetTab === 'Pending') {
@@ -6076,9 +6085,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
               let hasWarning = false;
               if (log) {
                 const checkType = log.chamber_type || pattern.type;
-                if (checkType === 'Frozen' && log.box_temp > -18) hasWarning = true;
-                if (checkType === 'Chilled' && (log.box_temp < -5 || log.box_temp > 5)) hasWarning = true;
-                if (checkType === 'Dry' && (log.box_temp < 15 || log.box_temp > 25)) hasWarning = true;
+                hasWarning = isChamberTempOutOfRange(log.box_temp, checkType);
               }
 
               const statusLabel = isCompleted
@@ -9274,12 +9281,19 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
     if (tempInput) {
       const tempVal = parseFloat(tempInput);
       if (!isNaN(tempVal)) {
-        if (selectedChamberType === 'Frozen' && tempVal > -18) hasWarning = true;
-        if (selectedChamberType === 'Chilled' && (tempVal < -5 || tempVal > 5)) hasWarning = true;
-        if (selectedChamberType === 'Dry' && (tempVal < 15 || tempVal > 25)) hasWarning = true;
-        // 'Other' type has no alert constraints
+        hasWarning = isChamberTempOutOfRange(tempVal, selectedChamberType);
       }
     }
+    const complianceRange = getChamberTempRange(selectedChamberType);
+    const complianceTargetLabel = complianceRange
+      ? complianceRange.label
+      : selectedChamberType === 'Frozen'
+        ? '≤ -18.0°C'
+        : selectedChamberType === 'Chilled'
+          ? '-5.0°C to 5.0°C'
+          : selectedChamberType === 'Dry'
+            ? '15.0°C to 25.0°C'
+            : 'No compliance limit';
 
     return (
       <Modal
@@ -9330,33 +9344,49 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                         Chamber - {getChamberDisplayNo(selectedChamber)}
                       </Text>
                       <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 'bold', marginTop: 2 }}>
-                        Compliance: {selectedChamberType} | Target: {selectedChamberType === 'Frozen' ? '≤ -18.0°C' : selectedChamberType === 'Chilled' ? '-5.0°C to 5.0°C' : '> 0.0°C'}
+                        Compliance: {selectedChamberType} | Target: {complianceTargetLabel}
                       </Text>
                     </View>
                   </View>
                 </View>
               )}
 
-              {/* Compliance banner for read-only mode */}
-              {!isProfileEditable && (
+              {/* Live compliance banner — in-range / out-of-range for Frozen, Chilled, Dry */}
+              {tempInput !== '' && !isNaN(parseFloat(tempInput)) && complianceRange ? (
                 <View style={[
                   styles.detailStatusBar,
-                  { backgroundColor: !hasWarning ? '#dcfce7' : '#fee2e2', marginHorizontal: 0, marginBottom: 15 }
+                  {
+                    backgroundColor: !hasWarning ? '#dcfce7' : '#fee2e2',
+                    marginHorizontal: 0,
+                    marginBottom: 15
+                  }
                 ]}>
-                  <Ionicons 
-                    name={!hasWarning ? "checkmark-circle" : "alert-circle"} 
-                    size={20} 
-                    color={!hasWarning ? "#16a34a" : "#ef4444"} 
+                  <Ionicons
+                    name={!hasWarning ? 'checkmark-circle' : 'alert-circle'}
+                    size={20}
+                    color={!hasWarning ? '#16a34a' : '#ef4444'}
                     style={{ marginRight: 8 }}
                   />
-                  <Text style={[
-                    styles.detailStatusText,
-                    { color: !hasWarning ? "#15803d" : "#b91c1c" }
-                  ]}>
-                    {!hasWarning ? "Temperature Compliance Safe" : "Out-of-Range Temperature warning!"}
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[
+                      styles.detailStatusText,
+                      { color: !hasWarning ? '#15803d' : '#b91c1c' }
+                    ]}>
+                      {!hasWarning
+                        ? `${selectedChamberType}: temperature in range`
+                        : `${selectedChamberType}: out-of-range temperature!`}
+                    </Text>
+                    <Text style={{
+                      fontSize: 10,
+                      fontWeight: '600',
+                      color: !hasWarning ? '#15803d' : '#b91c1c',
+                      marginTop: 2
+                    }}>
+                      {parseFloat(tempInput)}°C · allowed {complianceRange.label}
+                    </Text>
+                  </View>
                 </View>
-              )}
+              ) : null}
 
               {/* Main Body - Row Layout: Left side fields, Right side image */}
               {/* Vertical Stack Form Design */}
@@ -9627,7 +9657,10 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                         </View>
                         {selectedChamber && (
                           <Text style={{ fontSize: 9, color: '#475569', marginTop: 4, marginLeft: 2, fontWeight: '600' }}>
-                            Target: {selectedChamberType === 'Frozen' ? '≤ -18.0°C (Frozen)' : selectedChamberType === 'Chilled' ? '-5.0°C to 5.0°C (Chilled)' : selectedChamberType === 'Dry' ? '15.0°C to 25.0°C (Dry)' : 'No compliance limit'}
+                            Target: {complianceTargetLabel}
+                            {selectedChamberType && selectedChamberType !== 'Other'
+                              ? ` (${selectedChamberType})`
+                              : ''}
                           </Text>
                         )}
                       </>
@@ -10987,21 +11020,9 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
             {/* Temperature Compliance Warning */}
             {(() => {
               const tempVal = parseFloat(tempInput);
-              let isTempNonCompliant = false;
-              let rangeText = '';
-              
-              if (!isNaN(tempVal)) {
-                if (selectedChamberType === 'Frozen' && tempVal > -18) {
-                  isTempNonCompliant = true;
-                  rangeText = '<= -18°C';
-                } else if (selectedChamberType === 'Chilled' && (tempVal < -5 || tempVal > 5)) {
-                  isTempNonCompliant = true;
-                  rangeText = '-5°C to 5°C';
-                } else if (selectedChamberType === 'Dry' && (tempVal < 15 || tempVal > 25)) {
-                  isTempNonCompliant = true;
-                  rangeText = '15°C to 25°C';
-                }
-              }
+              const range = getChamberTempRange(selectedChamberType);
+              const isTempNonCompliant =
+                range && !isNaN(tempVal) && isChamberTempOutOfRange(tempVal, selectedChamberType);
 
               if (!isTempNonCompliant) return null;
 
@@ -11023,7 +11044,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                       Non-Compliant Temperature
                     </Text>
                     <Text style={{ fontSize: 10, fontWeight: '600', color: '#d97706', marginTop: 1 }}>
-                      Your temp of {tempVal}°C is not good as a compliance {selectedChamberType} (Range: {rangeText}).
+                      {tempVal}°C is outside {selectedChamberType} range ({range.label}).
                     </Text>
                   </View>
                 </View>
