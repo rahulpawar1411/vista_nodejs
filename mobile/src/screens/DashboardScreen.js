@@ -979,6 +979,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
   const [reportDateFrom, setReportDateFrom] = useState(getLocalDateStr());
   const [reportDateTo, setReportDateTo] = useState(getLocalDateStr());
   const [reportTempListPage, setReportTempListPage] = useState(1);
+  const [dailyReportListPage, setDailyReportListPage] = useState(1);
   const [tasksListPage, setTasksListPage] = useState(1);
   const [inventoryListPage, setInventoryListPage] = useState(1);
   const [inventoryHistoryPage, setInventoryHistoryPage] = useState(1);
@@ -3656,13 +3657,20 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
   };
 
   const fetchChamberLogsForDate = async (dateStr) => {
-    if (!apiUrl || !token || !dateStr) return;
+    if (!dateStr) return;
+    await fetchChamberLogsForRange(dateStr, dateStr);
+  };
+
+  const fetchChamberLogsForRange = async (fromDate, toDate) => {
+    if (!apiUrl || !token || !fromDate || !toDate) return;
+    const from = fromDate <= toDate ? fromDate : toDate;
+    const to = fromDate <= toDate ? toDate : fromDate;
     try {
       const qs = new URLSearchParams({
         page: '1',
-        limit: '150',
-        fromDate: dateStr,
-        toDate: dateStr
+        limit: '200',
+        fromDate: from,
+        toDate: to
       });
       if (user?.warehouse_name) {
         qs.set('warehouse', String(user.warehouse_name).trim());
@@ -3679,7 +3687,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       setChamberReportLogs((prev) => {
         const keep = (prev || []).filter((log) => {
           const day = logDateKey(log.formatted_date || log.entry_date);
-          return day !== dateStr;
+          return !day || day < from || day > to;
         });
         return [...keep, ...items];
       });
@@ -3691,8 +3699,8 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
         });
       });
       reconcileSyncedInspectionsFromServer(items, {
-        fromDate: dateStr,
-        toDate: dateStr,
+        fromDate: from,
+        toDate: to,
         operatorEmail: user?.email
       });
       loadInspectionsAndSummary();
@@ -3706,10 +3714,8 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
   }, [currentNavTab]);
 
   useEffect(() => {
-    if (currentNavTab !== 'Reports') return;
-    const dateStr = selectedReportDate || getLocalDateStr();
-    fetchChamberLogsForDate(dateStr);
-  }, [currentNavTab, selectedReportDate]);
+    setDailyReportListPage(1);
+  }, [reportDateFrom, reportDateTo, dailyReportChamberFilter, dailyReportClientFilter, reportDrillChamber]);
 
   // Launch phone camera — then compress only (no resize)
   const handleLaunchCamera = async () => {
@@ -6271,28 +6277,40 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
     logMatchesChamberRef(log, chamber?.id, chamber?.name);
 
   const getTodayReportLogs = () => {
-    const dateStr = selectedReportDate || getLocalDateStr();
-    return getMergedInspectionLogs().filter((log) => logOnDate(log, dateStr));
+    const from = reportDateFrom <= reportDateTo ? reportDateFrom : reportDateTo;
+    const to = reportDateFrom <= reportDateTo ? reportDateTo : reportDateFrom;
+    return getMergedInspectionLogs().filter((log) => {
+      const day = logDateKey(log.formatted_date || log.entry_date);
+      return day && day >= from && day <= to;
+    });
+  };
+
+  const formatReportDayLabel = (ymd) => {
+    if (!ymd) return '-';
+    const todayStr = getLocalDateStr();
+    if (ymd === todayStr) return 'Today';
+    const parts = String(ymd).split('-').map(Number);
+    if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return ymd;
+    const dt = new Date(parts[0], parts[1] - 1, parts[2]);
+    return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
   };
 
   const renderDailyReportsView = () => {
     const todayLogs = getTodayReportLogs();
     const drill = reportDrillChamber;
     const todayStr = getLocalDateStr();
-    const dateStr = selectedReportDate || todayStr;
-    const dateIsToday = dateStr === todayStr;
-    const dateLabel = (() => {
-      if (dateIsToday) return 'Today';
-      const parts = String(dateStr).split('-').map(Number);
-      if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return dateStr;
-      const dt = new Date(parts[0], parts[1] - 1, parts[2]);
-      return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
-    })();
+    const rangeFrom = reportDateFrom <= reportDateTo ? reportDateFrom : reportDateTo;
+    const rangeTo = reportDateFrom <= reportDateTo ? reportDateTo : reportDateFrom;
+    const isSingleDay = rangeFrom === rangeTo;
+    const dateIsToday = isSingleDay && rangeFrom === todayStr;
+    const dateLabel = isSingleDay
+      ? formatReportDayLabel(rangeFrom)
+      : `${formatReportDayLabel(rangeFrom)} – ${formatReportDayLabel(rangeTo)}`;
     const chamberFilterOn =
       dailyReportChamberFilter !== 'all' && dailyReportChamberFilter !== 'All';
     const clientFilterOn =
       dailyReportClientFilter !== 'All' && dailyReportClientFilter !== 'all';
-    const filtersActive = (!drill && chamberFilterOn) || clientFilterOn || !dateIsToday;
+    const filtersActive = (!drill && chamberFilterOn) || clientFilterOn || !(isSingleDay && dateIsToday);
 
     const sortedChambers = [...(chambersList || [])].sort((a, b) => {
       const na = parseInt((String(a.name || '').match(/\d+/) || [a.id])[0], 10);
@@ -6323,6 +6341,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       if (!dateIsToday && !todayLogs.some((l) => logMatchesChamber(l, chamber))) return false;
       return true;
     });
+    const pagedChambers = paginateList(filteredChambers, dailyReportListPage, LIST_PAGE_SIZE);
 
     const chamberLabel = chamberFilterOn
       ? chambersList.find((c) => Number(c.id) === Number(dailyReportChamberFilter))?.name ||
@@ -6335,28 +6354,36 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       setDailyReportClientFilter('All');
       setDailyReportOpenFilter(null);
       setDailyReportPickerQuery('');
+      setReportDateFrom(todayStr);
+      setReportDateTo(todayStr);
       setSelectedReportDate(todayStr);
+      setDailyReportListPage(1);
       setShowDailyReportCalendar(false);
+      setShowCalendarModal(false);
       if (!drill) {
         setDailyReportChamberFilter('all');
       }
     };
 
     const openDailyReportCalendar = () => {
-      const parts = String(dateStr).split('-').map(Number);
+      const seed = rangeTo || rangeFrom || todayStr;
+      const parts = String(seed).split('-').map(Number);
       const monthDate =
         parts.length === 3 && !parts.some((n) => Number.isNaN(n))
           ? new Date(parts[0], parts[1] - 1, parts[2])
           : new Date();
-      setDailyReportCalendarMonth(monthDate);
+      setCalendarMonth(monthDate);
+      setCalendarPickMode('from');
       setDailyReportOpenFilter(null);
-      setShowDailyReportCalendar(true);
+      setShowDailyReportCalendar(false);
+      setShowCalendarModal(true);
     };
 
     const openChamberFromList = (chamber) => {
       setDailyReportChamberFilter(chamber.id);
       setDailyReportOpenFilter(null);
       setDailyReportPickerQuery('');
+      setDailyReportListPage(1);
       setReportDrillChamber({ id: chamber.id, name: chamber.name });
     };
 
@@ -6365,6 +6392,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       setDailyReportChamberFilter('all');
       setDailyReportOpenFilter(null);
       setDailyReportPickerQuery('');
+      setDailyReportListPage(1);
     };
 
     const pickerQ = String(dailyReportPickerQuery || '').trim().toLowerCase();
@@ -6429,11 +6457,11 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.doFilterChip, !dateIsToday && styles.doFilterChipActive]}
+            style={[styles.doFilterChip, !(isSingleDay && dateIsToday) && styles.doFilterChipActive]}
             onPress={openDailyReportCalendar}
             activeOpacity={0.85}
           >
-            <Text style={styles.doFilterChipLabel}>Date</Text>
+            <Text style={styles.doFilterChipLabel}>Date range</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Ionicons name="calendar-outline" size={12} color="#003580" />
               <Text style={styles.doFilterChipValue} numberOfLines={1}>
@@ -6588,114 +6616,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       </Modal>
     );
 
-    const renderDailyDateCalendar = () => {
-      const days = getCalendarDays(dailyReportCalendarMonth);
-      const monthName = dailyReportCalendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' });
-      const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-      return (
-        <Modal
-          visible={showDailyReportCalendar}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowDailyReportCalendar(false)}
-        >
-          <View style={styles.reportFilterModalOverlay}>
-            <TouchableOpacity
-              style={StyleSheet.absoluteFill}
-              activeOpacity={1}
-              onPress={() => setShowDailyReportCalendar(false)}
-            />
-            <View style={styles.calendarFilterModalSheet}>
-              <View style={styles.calendarSheetHandle} />
-              <Text style={styles.reportFilterModalTitle}>Select date</Text>
-              <Text style={styles.calendarSheetHint}>
-                One day only · {dateLabel}
-              </Text>
-              <View style={styles.calendarSheetMonthRow}>
-                <TouchableOpacity
-                  onPress={() => {
-                    const prev = new Date(dailyReportCalendarMonth);
-                    prev.setMonth(prev.getMonth() - 1);
-                    setDailyReportCalendarMonth(prev);
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="chevron-back" size={20} color="#003580" />
-                </TouchableOpacity>
-                <Text style={styles.calendarSheetMonthText}>{monthName}</Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    const next = new Date(dailyReportCalendarMonth);
-                    next.setMonth(next.getMonth() + 1);
-                    setDailyReportCalendarMonth(next);
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="chevron-forward" size={20} color="#003580" />
-                </TouchableOpacity>
-              </View>
-              <View style={{ flexDirection: 'row', marginBottom: 4 }}>
-                {weekDays.map((d, i) => (
-                  <Text key={`wd-${i}`} style={styles.calendarSheetWeekDay}>
-                    {d}
-                  </Text>
-                ))}
-              </View>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                {days.map((d, index) => {
-                  if (!d) {
-                    return <View key={`empty-${index}`} style={styles.calendarSheetDayCell} />;
-                  }
-                  const cellDate = getLocalDateStr(d);
-                  const isSelected = cellDate === dateStr;
-                  const isToday = cellDate === todayStr;
-                  const isFuture = cellDate > todayStr;
-                  return (
-                    <TouchableOpacity
-                      key={cellDate}
-                      disabled={isFuture}
-                      onPress={() => {
-                        setSelectedReportDate(cellDate);
-                        setShowDailyReportCalendar(false);
-                      }}
-                      style={[
-                        styles.calendarSheetDayCell,
-                        {
-                          borderRadius: 16,
-                          backgroundColor: isSelected ? '#003580' : 'transparent',
-                          borderWidth: isToday && !isSelected ? 1 : 0,
-                          borderColor: '#93c5fd',
-                          opacity: isFuture ? 0.3 : 1,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          fontWeight: isSelected || isToday ? '800' : '600',
-                          color: isSelected ? '#ffffff' : '#0f172a',
-                        }}
-                      >
-                        {d.getDate()}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              <TouchableOpacity
-                style={styles.reportFilterModalClose}
-                onPress={() => {
-                  setSelectedReportDate(todayStr);
-                  setShowDailyReportCalendar(false);
-                }}
-              >
-                <Text style={styles.reportFilterModalCloseText}>Today</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-      );
-    };
+    const renderDailyDateCalendar = () => null;
 
     const openClientDetails = (chamber, clientName, log, shiftName) => {
       const found =
@@ -6773,99 +6694,126 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       const clients = dateIsToday ? getClientsForChamber(chamber.id) : [];
       const chamberLogs = todayLogs.filter((l) => logMatchesChamber(l, chamber));
 
-      const clientCards = [];
-      const seenClients = new Set();
-      clients.forEach((client) => {
-        const clientName = String(client.client_name || '').trim();
-        if (!clientName) return;
-        seenClients.add(clientName.toLowerCase());
-        const morningLog = chamberLogs.find(
-          (l) => namesMatch(l.client_name, clientName) && resolveLogShiftName(l) === 'Morning'
-        );
-        const eveningLog = chamberLogs.find(
-          (l) => namesMatch(l.client_name, clientName) && resolveLogShiftName(l) === 'Evening'
-        );
-        const anyLog =
-          chamberLogs.find((l) => namesMatch(l.client_name, clientName)) ||
-          morningLog ||
-          eveningLog;
-        clientCards.push({
-          clientName,
-          morningLog,
-          eveningLog,
-          anyLog,
-          isDone: !!(morningLog || eveningLog || anyLog)
-        });
-      });
-
-      chamberLogs.forEach((log) => {
-        const name = String(log.client_name || '').trim();
-        if (!name || seenClients.has(name.toLowerCase())) return;
-        seenClients.add(name.toLowerCase());
-        const shiftName = resolveLogShiftName(log);
-        clientCards.push({
-          clientName: name,
-          morningLog: shiftName === 'Evening' ? null : log,
-          eveningLog: shiftName === 'Evening' ? log : null,
-          anyLog: log,
-          isDone: true
-        });
-      });
-
-      const visibleClients = clientCards.filter((row) => {
-        if (clientFilterOn && !namesMatch(row.clientName, dailyReportClientFilter)) return false;
-        return true;
-      });
-
-      const renderShiftClientRows = (shiftName) =>
-        visibleClients.map((row, idx) => {
-          const log = shiftName === 'Evening' ? row.eveningLog : row.morningLog;
-          const isDone = !!log;
-          return (
-            <View
-              key={`${shiftName}_${row.clientName}_${idx}`}
-              style={[styles.reportListRow, isDone && styles.taskItemCardCompleted]}
-            >
-              <View
-                style={[
-                  styles.reportListAccent,
-                  isDone ? styles.taskCardAccentDone : styles.taskCardAccentPending
-                ]}
-              />
-              <TouchableOpacity
-                style={styles.reportListMain}
-                activeOpacity={0.7}
-                onPress={() => openClientDetails(chamber, row.clientName, log, shiftName)}
-              >
-                <Text style={styles.reportListTitle} numberOfLines={1}>
-                  {row.clientName}
-                </Text>
-                <Text style={styles.reportListMeta} numberOfLines={1}>
-                  {shiftName}
-                  {'  ·  '}
-                  {isDone ? 'Done' : 'Pending'}
-                  {'  ·  '}Qty {formatBoxQty(log)}
-                  {'  ·  '}Temp {formatBoxTemp(log)}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.reportViewBtn, !isDone && { opacity: 0.45 }]}
-                onPress={() => openClientDetails(chamber, row.clientName, log, shiftName)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.reportViewBtnText}>View</Text>
-              </TouchableOpacity>
-            </View>
+      let listRows = [];
+      let singleDayClients = [];
+      if (isSingleDay) {
+        const clientCards = [];
+        const seenClients = new Set();
+        clients.forEach((client) => {
+          const clientName = String(client.client_name || '').trim();
+          if (!clientName) return;
+          seenClients.add(clientName.toLowerCase());
+          const morningLog = chamberLogs.find(
+            (l) => namesMatch(l.client_name, clientName) && resolveLogShiftName(l) === 'Morning'
           );
+          const eveningLog = chamberLogs.find(
+            (l) => namesMatch(l.client_name, clientName) && resolveLogShiftName(l) === 'Evening'
+          );
+          const anyLog =
+            chamberLogs.find((l) => namesMatch(l.client_name, clientName)) ||
+            morningLog ||
+            eveningLog;
+          clientCards.push({
+            clientName,
+            morningLog,
+            eveningLog,
+            anyLog,
+            isDone: !!(morningLog || eveningLog || anyLog)
+          });
         });
+
+        chamberLogs.forEach((log) => {
+          const name = String(log.client_name || '').trim();
+          if (!name || seenClients.has(name.toLowerCase())) return;
+          seenClients.add(name.toLowerCase());
+          const shiftName = resolveLogShiftName(log);
+          clientCards.push({
+            clientName: name,
+            morningLog: shiftName === 'Evening' ? null : log,
+            eveningLog: shiftName === 'Evening' ? log : null,
+            anyLog: log,
+            isDone: true
+          });
+        });
+
+        singleDayClients = clientCards.filter((row) => {
+          if (clientFilterOn && !namesMatch(row.clientName, dailyReportClientFilter)) return false;
+          return true;
+        });
+        listRows = singleDayClients;
+      } else {
+        chamberLogs
+          .slice()
+          .sort((a, b) => {
+            const da = logDateKey(a.formatted_date || a.entry_date);
+            const db = logDateKey(b.formatted_date || b.entry_date);
+            if (db !== da) return String(db).localeCompare(String(da));
+            const sa = resolveLogShiftName(a) === 'Evening' ? 1 : 0;
+            const sb = resolveLogShiftName(b) === 'Evening' ? 1 : 0;
+            return sb - sa;
+          })
+          .forEach((log) => {
+            const clientName = String(log.client_name || '').trim() || 'Client';
+            if (clientFilterOn && !namesMatch(clientName, dailyReportClientFilter)) return;
+            listRows.push({
+              kind: 'log',
+              log,
+              clientName,
+              shiftName: resolveLogShiftName(log) || 'Morning',
+              day: logDateKey(log.formatted_date || log.entry_date)
+            });
+          });
+      }
+
+      const pagedRows = paginateList(listRows, dailyReportListPage, LIST_PAGE_SIZE);
+
+      const renderShiftClientRow = (row, shiftName, idx) => {
+        const log = shiftName === 'Evening' ? row.eveningLog : row.morningLog;
+        const isDone = !!log;
+        return (
+          <View
+            key={`${shiftName}_${row.clientName}_${idx}`}
+            style={[styles.reportListRow, isDone && styles.taskItemCardCompleted]}
+          >
+            <View
+              style={[
+                styles.reportListAccent,
+                isDone ? styles.taskCardAccentDone : styles.taskCardAccentPending
+              ]}
+            />
+            <TouchableOpacity
+              style={styles.reportListMain}
+              activeOpacity={0.7}
+              onPress={() => openClientDetails(chamber, row.clientName, log, shiftName)}
+            >
+              <Text style={styles.reportListTitle} numberOfLines={1}>
+                {row.clientName}
+              </Text>
+              <Text style={styles.reportListMeta} numberOfLines={1}>
+                {shiftName}
+                {'  ·  '}
+                {isDone ? 'Done' : 'Pending'}
+                {'  ·  '}Qty {formatBoxQty(log)}
+                {'  ·  '}Temp {formatBoxTemp(log)}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.reportViewBtn, !isDone && { opacity: 0.45 }]}
+              onPress={() => openClientDetails(chamber, row.clientName, log, shiftName)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.reportViewBtnText}>View</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      };
 
       return (
         <View style={styles.tabContainer}>
           {renderFilterBar(
-            `${chamber.name || 'Chamber'} · ${visibleClients.length} client${visibleClients.length === 1 ? '' : 's'}`
+            `${chamber.name || 'Chamber'} · ${listRows.length} entr${listRows.length === 1 ? 'y' : 'ies'} · ${dateLabel}`
           )}
           {renderFilterModal()}
-          {renderDailyDateCalendar()}
 
           <ScrollView
             contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 100 }}
@@ -6875,23 +6823,64 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#003580']} />
             }
           >
-            {visibleClients.length === 0 ? (
+            {listRows.length === 0 ? (
               <View style={styles.emptyContainer}>
                 <Ionicons name="people-outline" size={44} color="#94a3b8" />
                 <Text style={styles.emptyText}>
-                  {clientCards.length === 0
-                    ? dateIsToday
-                      ? 'No clients mapped to this chamber.'
-                      : `No reports for ${dateLabel}.`
-                    : 'No clients match the filter.'}
+                  {dateIsToday
+                    ? 'No clients mapped to this chamber.'
+                    : `No reports for ${dateLabel}.`}
                 </Text>
               </View>
             ) : (
               <>
-                <Text style={styles.reportShiftSectionTitle}>Morning</Text>
-                {renderShiftClientRows('Morning')}
-                <Text style={[styles.reportShiftSectionTitle, { marginTop: 10 }]}>Evening</Text>
-                {renderShiftClientRows('Evening')}
+                {isSingleDay ? (
+                  <>
+                    <Text style={styles.reportShiftSectionTitle}>Morning</Text>
+                    {pagedRows.items.map((row, idx) => renderShiftClientRow(row, 'Morning', idx))}
+                    <Text style={[styles.reportShiftSectionTitle, { marginTop: 10 }]}>Evening</Text>
+                    {pagedRows.items.map((row, idx) => renderShiftClientRow(row, 'Evening', idx))}
+                  </>
+                ) : (
+                  pagedRows.items.map((r, idx) => (
+                    <View
+                      key={`range-log-${r.log?.id || idx}-${r.day}-${r.shiftName}`}
+                      style={[styles.reportListRow, styles.taskItemCardCompleted]}
+                    >
+                      <View style={[styles.reportListAccent, styles.taskCardAccentDone]} />
+                      <TouchableOpacity
+                        style={styles.reportListMain}
+                        activeOpacity={0.7}
+                        onPress={() => openClientDetails(chamber, r.clientName, r.log, r.shiftName)}
+                      >
+                        <Text style={styles.reportListTitle} numberOfLines={1}>
+                          {r.clientName}
+                        </Text>
+                        <Text style={styles.reportListMeta} numberOfLines={1}>
+                          {formatReportDayLabel(r.day)}
+                          {'  ·  '}
+                          {r.shiftName}
+                          {'  ·  '}Qty {formatBoxQty(r.log)}
+                          {'  ·  '}Temp {formatBoxTemp(r.log)}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.reportViewBtn}
+                        onPress={() => openClientDetails(chamber, r.clientName, r.log, r.shiftName)}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.reportViewBtnText}>View</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))
+                )}
+                <ListPageFooter
+                  page={pagedRows.page}
+                  total={pagedRows.total}
+                  pageSize={LIST_PAGE_SIZE}
+                  onPrev={() => setDailyReportListPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setDailyReportListPage((p) => Math.min(pagedRows.totalPages, p + 1))}
+                />
               </>
             )}
           </ScrollView>
@@ -6903,7 +6892,6 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       <View style={styles.tabContainer}>
         {renderFilterBar(dateIsToday ? 'Chambers · tap View for clients' : `Reports · ${dateLabel}`)}
         {renderFilterModal()}
-        {renderDailyDateCalendar()}
 
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 100 }}
@@ -6925,7 +6913,8 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
               </Text>
             </View>
           ) : (
-            filteredChambers.map((chamber) => {
+            <>
+            {pagedChambers.items.map((chamber) => {
               const morningNames = clientNamesForShift(chamber, 'Morning');
               const eveningNames = clientNamesForShift(chamber, 'Evening');
               const clientNames = [];
@@ -6960,7 +6949,15 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                   </TouchableOpacity>
                 </View>
               );
-            })
+            })}
+            <ListPageFooter
+              page={pagedChambers.page}
+              total={pagedChambers.total}
+              pageSize={LIST_PAGE_SIZE}
+              onPrev={() => setDailyReportListPage((p) => Math.max(1, p - 1))}
+              onNext={() => setDailyReportListPage((p) => Math.min(pagedChambers.totalPages, p + 1))}
+            />
+            </>
           )}
         </ScrollView>
       </View>
