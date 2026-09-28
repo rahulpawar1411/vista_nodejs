@@ -3249,11 +3249,12 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
   };
 
   const renderDetailRow = (label, value) => {
-    if (value == null || value === '') return null;
+    const display =
+      value == null || String(value).trim() === '' ? '-' : String(value);
     return (
       <View style={styles.logDetailRow}>
         <Text style={styles.logDetailLabel}>{label}</Text>
-        <Text style={styles.logDetailValue}>{String(value)}</Text>
+        <Text style={styles.logDetailValue}>{display}</Text>
       </View>
     );
   };
@@ -4059,11 +4060,12 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
   };
 
   const renderDoDetailRow = (label, value) => {
-    if (value == null || value === '') return null;
+    const display =
+      value == null || String(value).trim() === '' ? '-' : String(value);
     return (
       <View style={styles.doLogDetailRow} key={label}>
         <Text style={styles.doLogDetailLabel}>{label}</Text>
-        <Text style={styles.doLogDetailValue}>{String(value)}</Text>
+        <Text style={styles.doLogDetailValue}>{display}</Text>
       </View>
     );
   };

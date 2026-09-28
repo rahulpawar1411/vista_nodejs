@@ -4451,17 +4451,17 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                           ];
 
                       return sections.map((section) => {
-                        const visibleRows = section.rows.filter(
-                          ([, value]) => value != null && String(value).trim() !== ''
-                        );
-                        if (!visibleRows.length) return null;
                         return (
                           <View key={section.title} style={styles.logDetailSection}>
                             <Text style={styles.logDetailSectionTitle}>{section.title}</Text>
-                            {visibleRows.map(([label, value]) => (
+                            {section.rows.map(([label, value]) => (
                               <View key={label} style={styles.detailRow}>
                                 <Text style={styles.detailLabel}>{label}</Text>
-                                <Text style={styles.detailValue}>{String(value)}</Text>
+                                <Text style={styles.detailValue}>
+                                  {value == null || String(value).trim() === ''
+                                    ? '-'
+                                    : String(value)}
+                                </Text>
                               </View>
                             ))}
                           </View>
@@ -4562,7 +4562,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                               : null)
                         ]
                     ].map(([label, value]) => {
-                      if (value == null || String(value).trim() === '') return null;
+                      const empty = value == null || String(value).trim() === '';
                       const typeForCheck =
                         pickComplianceZone(selectedLog.chamber_type) ||
                         normalizeChamberZone(selectedLog.chamber_type) ||
@@ -4574,15 +4574,18 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                             ? Number(selectedLog.chamber_temp)
                             : null;
                       const deviation =
-                        tempForCheck != null && Number.isFinite(tempForCheck)
+                        !empty &&
+                        tempForCheck != null &&
+                        Number.isFinite(tempForCheck)
                           ? getChamberTempDeviation(tempForCheck, typeForCheck)
                           : null;
                       const oor = deviation != null;
                       const emphasize =
                         oor && (label === 'Box temp' || label === 'Chamber type');
                       const range = getChamberTempRange(typeForCheck);
-                      const typeDisplay =
-                        label === 'Chamber type' && deviation === 'low'
+                      const typeDisplay = empty
+                        ? '-'
+                        : label === 'Chamber type' && deviation === 'low'
                           ? `< ${value}`
                           : label === 'Chamber type' && deviation === 'high'
                             ? `> ${value}`

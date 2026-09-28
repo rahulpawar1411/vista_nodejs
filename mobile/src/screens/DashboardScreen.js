@@ -8986,11 +8986,12 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
           : '—';
 
     const renderDetailRow = (label, value) => {
-      if (value == null || value === '') return null;
+      const display =
+        value == null || String(value).trim() === '' ? '-' : String(value);
       return (
         <View style={styles.doLogDetailRow} key={label}>
           <Text style={styles.doLogDetailLabel}>{label}</Text>
-          <Text style={styles.doLogDetailValue}>{String(value)}</Text>
+          <Text style={styles.doLogDetailValue}>{display}</Text>
         </View>
       );
     };
@@ -12158,11 +12159,12 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
     );
 
     const renderDetailRow = (label, value) => {
-      if (value == null || value === '') return null;
+      const display =
+        value == null || String(value).trim() === '' ? '-' : String(value);
       return (
         <View style={styles.doLogDetailRow} key={label}>
           <Text style={styles.doLogDetailLabel}>{label}</Text>
-          <Text style={styles.doLogDetailValue}>{String(value)}</Text>
+          <Text style={styles.doLogDetailValue}>{display}</Text>
         </View>
       );
     };
@@ -12865,11 +12867,12 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
     );
 
     const renderDetailRow = (label, value) => {
-      if (value == null || value === '') return null;
+      const display =
+        value == null || String(value).trim() === '' ? '-' : String(value);
       return (
         <View style={styles.doLogDetailRow} key={label}>
           <Text style={styles.doLogDetailLabel}>{label}</Text>
-          <Text style={styles.doLogDetailValue}>{String(value)}</Text>
+          <Text style={styles.doLogDetailValue}>{display}</Text>
         </View>
       );
     };
