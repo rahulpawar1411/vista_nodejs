@@ -6,6 +6,7 @@ const REQUIRED_FIELDS = [
   ['outward_dock_no', 'Dock No.'],
   ['outward_material_type', 'Material Type'],
   ['outward_vehicle_no', 'Vehicle No.'],
+  ['outward_invoice_no', 'Invoice No.'],
   ['outward_transporter_name', 'Transporter Name'],
   ['outward_driver_name', 'Driver Name'],
   ['outward_driver_no', 'Driver Phone No.'],
@@ -158,6 +159,8 @@ export function sanitizeOutwardField(fieldName, value, context = {}) {
       return formatVehicleNumber(value);
     case 'outward_seal_no':
       return sanitizeSealNumber(value);
+    case 'outward_invoice_no':
+      return sanitizeSealNumber(value);
     case 'outward_client_name':
       return sanitizeClientName(value);
     case 'outward_driver_name':
@@ -171,6 +174,7 @@ export function sanitizeOutwardField(fieldName, value, context = {}) {
     case 'outward_received_qty':
     case 'outward_received_boxes_qty':
     case 'outward_damage_received_boxes_qty':
+    case 'outward_mens_power':
       return sanitizeIntegerField(value);
     case 'outward_pre_vehicle_temp':
     case 'outward_material_temp':
@@ -278,6 +282,7 @@ const STEP_REQUIRED_FIELDS = {
     ['outward_dock_no', 'Dock No.'],
     ['outward_material_type', 'Material Type'],
     ['outward_vehicle_no', 'Vehicle No.'],
+    ['outward_invoice_no', 'Invoice No.'],
     ['outward_transporter_name', 'Transporter Name'],
     ['outward_driver_name', 'Driver Name'],
     ['outward_driver_no', 'Driver Phone No.'],
@@ -330,6 +335,8 @@ const FIELD_TO_STEP = {
   outward_material_type: 1,
   outward_vehicle_no: 1,
   outward_seal_no: 1,
+  outward_invoice_no: 1,
+  outward_mens_power: 1,
   outward_transporter_name: 1,
   outward_driver_name: 1,
   outward_driver_no: 1,
@@ -506,6 +513,8 @@ export function getDefaultOutwardForm(todayStr, supervisorName = '') {
     outward_entry_date: todayStr,
     outward_vehicle_no: '',
     outward_seal_no: '',
+    outward_invoice_no: '',
+    outward_mens_power: '',
     outward_pre_vehicle_temp: '',
     outward_material_temp: '',
     outward_transporter_name: '',

@@ -4302,6 +4302,8 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                                 ['Material', item.inward_material_type],
                                 ['Vehicle no.', item.inward_vehicle_no],
                                 ['Seal no.', item.inward_seal_no],
+                                ['Invoice no.', item.inward_invoice_no],
+                                ['Mens power', item.inward_mens_power],
                                 ['Transporter', item.inward_transporter_name],
                                 ['Driver', item.inward_driver_name],
                                 ['Driver phone', item.inward_driver_no]
@@ -4387,6 +4389,8 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                                 ['Material', item.outward_material_type],
                                 ['Vehicle no.', item.outward_vehicle_no],
                                 ['Seal no.', item.outward_seal_no],
+                                ['Invoice no.', item.outward_invoice_no],
+                                ['Mens power', item.outward_mens_power],
                                 ['Transporter', item.outward_transporter_name],
                                 ['Driver', item.outward_driver_name],
                                 ['Driver phone', item.outward_driver_no]

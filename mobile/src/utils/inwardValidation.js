@@ -6,6 +6,7 @@ const REQUIRED_FIELDS = [
   ['inward_dock_no', 'Dock No.'],
   ['inward_material_type', 'Material Type'],
   ['inward_vehicle_no', 'Vehicle No.'],
+  ['inward_invoice_no', 'Invoice No.'],
   ['inward_transporter_name', 'Transporter Name'],
   ['inward_driver_name', 'Driver Name'],
   ['inward_driver_no', 'Driver Phone No.'],
@@ -158,6 +159,8 @@ export function sanitizeInwardField(fieldName, value, context = {}) {
       return formatVehicleNumber(value);
     case 'inward_seal_no':
       return sanitizeSealNumber(value);
+    case 'inward_invoice_no':
+      return sanitizeSealNumber(value);
     case 'inward_client_name':
       return sanitizeClientName(value);
     case 'inward_driver_name':
@@ -171,6 +174,7 @@ export function sanitizeInwardField(fieldName, value, context = {}) {
     case 'inward_received_qty':
     case 'inward_received_boxes_qty':
     case 'inward_damage_received_boxes_qty':
+    case 'inward_mens_power':
       return sanitizeIntegerField(value);
     case 'inward_vehicle_temp':
     case 'inward_material_temp':
@@ -278,6 +282,7 @@ const STEP_REQUIRED_FIELDS = {
     ['inward_dock_no', 'Dock No.'],
     ['inward_material_type', 'Material Type'],
     ['inward_vehicle_no', 'Vehicle No.'],
+    ['inward_invoice_no', 'Invoice No.'],
     ['inward_transporter_name', 'Transporter Name'],
     ['inward_driver_name', 'Driver Name'],
     ['inward_driver_no', 'Driver Phone No.'],
@@ -329,6 +334,8 @@ const FIELD_TO_STEP = {
   inward_material_type: 1,
   inward_vehicle_no: 1,
   inward_seal_no: 1,
+  inward_invoice_no: 1,
+  inward_mens_power: 1,
   inward_transporter_name: 1,
   inward_driver_name: 1,
   inward_driver_no: 1,
@@ -505,6 +512,8 @@ export function getDefaultInwardForm(todayStr, supervisorName = '') {
     inward_entry_date: todayStr,
     inward_vehicle_no: '',
     inward_seal_no: '',
+    inward_invoice_no: '',
+    inward_mens_power: '',
     inward_vehicle_temp: '',
     inward_material_temp: '',
     inward_transporter_name: '',

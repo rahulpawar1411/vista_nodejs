@@ -1409,6 +1409,15 @@ export default function OutwardFormView({
               placeholder: 'e.g. SL-998822',
               autoCapitalize: 'characters',
             })}
+            {renderInput('outward_invoice_no', 'Invoice No.', {
+              required: true,
+              placeholder: 'e.g. INV-12345',
+              autoCapitalize: 'characters',
+            })}
+            {renderInput('outward_mens_power', 'Mens Power (optional)', {
+              placeholder: 'e.g. 4',
+              keyboardType: 'number-pad',
+            })}
             {renderInput('outward_transporter_name', 'Transporter Name', {
               required: true,
               placeholder: 'e.g. BlueDart Express',
