@@ -1,6 +1,6 @@
-/** First Reports page: 50 rows, then load 20 more at a time. */
-export const INVENTORY_REPORT_FIRST_PAGE = 50;
-export const INVENTORY_REPORT_MORE_PAGE = 20;
+/** Reports inventory lists: 15 rows per page (first load + load-more). */
+export const INVENTORY_REPORT_FIRST_PAGE = 15;
+export const INVENTORY_REPORT_MORE_PAGE = 15;
 
 export function buildInventoryReconciliationQuery({
   offset = 0,

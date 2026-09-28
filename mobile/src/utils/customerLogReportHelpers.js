@@ -1,4 +1,5 @@
-export const DOCK_REPORT_PAGE_SIZE = 20;
+export const DOCK_REPORT_PAGE_SIZE = 15;
+export const LIST_PAGE_SIZE = 15;
 
 export function splitLogPhotoPaths(value) {
   if (!value) return [];

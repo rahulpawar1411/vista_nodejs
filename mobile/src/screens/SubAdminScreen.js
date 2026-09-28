@@ -49,6 +49,7 @@ import {
 import { formatUserError } from '../utils/userFacingError';
 import ListLoadingOverlay from '../components/ListLoadingOverlay';
 import InlineErrorState from '../components/InlineErrorState';
+import { ChamberTempLogCard, DockMovementLogCard, ListPageFooter, paginateList, LIST_PAGE_SIZE } from '../components/LogListCards';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import {
@@ -507,8 +508,10 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
   const [reportView, setReportView] = useState('all'); // all | mismatch
   const [selectedReport, setSelectedReport] = useState(null);
   const [reportHistory, setReportHistory] = useState([]);
+  const [reportHistoryPage, setReportHistoryPage] = useState(1);
   const [reportHistoryLoading, setReportHistoryLoading] = useState(false);
   const [reportHistoryError, setReportHistoryError] = useState('');
+  const [logDisplayPage, setLogDisplayPage] = useState(1);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [reportsError, setReportsError] = useState('');
   const [reportsRefreshing, setReportsRefreshing] = useState(false);
@@ -525,6 +528,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifFilter, setNotifFilter] = useState('all'); // all | pending | decided
+  const [notifListPage, setNotifListPage] = useState(1);
   const [seenNotifIds, setSeenNotifIds] = useState([]);
   const [notifActionBusy, setNotifActionBusy] = useState(null);
   const [permissionsUpdatedAt, setPermissionsUpdatedAt] = useState(null);
@@ -1138,6 +1142,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
         (clientFilter && clientFilter !== 'All');
       const pageSize = hasLocalFilter ? 100 : DOCK_REPORT_PAGE_SIZE;
       const page = hasLocalFilter ? 1 : logPage;
+      if (hasLocalFilter) setLogDisplayPage(1);
 
       const qs = new URLSearchParams({
         page: String(page),
@@ -2876,6 +2881,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     async (row) => {
       setSelectedReport(row);
       setReportHistory([]);
+      setReportHistoryPage(1);
       setReportHistoryError('');
       setReportHistoryLoading(true);
       try {
@@ -2986,73 +2992,21 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
 
   const renderLogItem = ({ item }) => {
     if (item._logType === 'chambers' || (!item._logType && logType === 'chambers')) {
-      const dateLabel = formatDateLabel(
-        String(item.formatted_date || item.entry_date || '').slice(0, 10) || 'All'
-      );
-      const tempNum =
-        item.box_temp != null
-          ? Number(item.box_temp)
-          : item.chamber_temp != null
-            ? Number(item.chamber_temp)
-            : null;
-      const temp =
-        tempNum != null && Number.isFinite(tempNum)
-          ? `${tempNum % 1 === 0 ? tempNum : tempNum.toFixed(1)}°C`
-          : '—';
-      const chamberType =
-        pickComplianceZone(item.chamber_type) ||
-        normalizeChamberZone(item.chamber_type) ||
-        String(item.chamber_type || '').trim() ||
-        null;
-      const deviation =
-        tempNum != null && Number.isFinite(tempNum)
-          ? getChamberTempDeviation(tempNum, chamberType)
-          : null;
-      const outOfRange = deviation != null;
-      const alertColor = '#dc2626';
       return (
-        <TouchableOpacity
-          style={styles.dailyCard}
+        <ChamberTempLogCard
+          item={item}
           onPress={() => setSelectedLog(item)}
-          activeOpacity={0.85}
-        >
-          <View style={styles.dailyTop}>
-            <View style={styles.dailyTextCol}>
-              <Text style={styles.dailyChamber} numberOfLines={1}>
-                {item.chamber_name || 'Chamber'}
-                {item.client_name ? ` · ${item.client_name}` : ''}
-              </Text>
-              <Text style={styles.dailyMetaLine} numberOfLines={1}>
-                {dateLabel}
-                {item.shift ? ` · ${item.shift}` : ''}
-                {item.box_count != null ? ` · ${item.box_count} boxes` : ''}
-                {item.warehouse_name ? ` · ${item.warehouse_name}` : ''}
-              </Text>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={[styles.dailyTemp, outOfRange && { color: alertColor }]}>{temp}</Text>
-              {chamberType ? (
-                <View style={styles.logChamberTypeRow}>
-                  {deviation === 'low' ? (
-                    <Text style={[styles.logChamberTypeArrow, { color: alertColor }]}>{'<'}</Text>
-                  ) : null}
-                  {deviation === 'high' ? (
-                    <Text style={[styles.logChamberTypeArrow, { color: alertColor }]}>{'>'}</Text>
-                  ) : null}
-                  <Text
-                    style={[
-                      styles.logChamberTypeHint,
-                      outOfRange && { color: alertColor, fontWeight: '800' }
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {chamberType}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-        </TouchableOpacity>
+        />
+      );
+    }
+
+    if (item._logType === 'inward' || item._logType === 'outward') {
+      return (
+        <DockMovementLogCard
+          item={item}
+          mode={item._logType}
+          onPress={() => setSelectedLog(item)}
+        />
       );
     }
 
@@ -3454,8 +3408,16 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
             <InlineErrorState message={logsError} onRetry={loadLogs} icon="warning-outline" />
           ) : (
             <View style={{ flex: 1 }}>
+            {(() => {
+              const logsLocalFilter =
+                (chamberFilter && chamberFilter !== 'All') ||
+                (clientFilter && clientFilter !== 'All');
+              const pagedLogs = logsLocalFilter
+                ? paginateList(logs, logDisplayPage, LIST_PAGE_SIZE)
+                : null;
+              return (
             <FlatList
-              data={logs}
+              data={pagedLogs ? pagedLogs.items : logs}
               keyExtractor={(item, idx) =>
                 String(item.id || item.inward_id || item.outward_id || item.reference_no || idx)
               }
@@ -3472,7 +3434,17 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                 />
               }
                 ListFooterComponent={
-                  logTotal > DOCK_REPORT_PAGE_SIZE || logPage > 1 ? (
+                  pagedLogs ? (
+                    <ListPageFooter
+                      page={pagedLogs.page}
+                      pageSize={LIST_PAGE_SIZE}
+                      total={pagedLogs.total}
+                      onPrev={() => setLogDisplayPage((p) => Math.max(1, p - 1))}
+                      onNext={() =>
+                        setLogDisplayPage((p) => Math.min(pagedLogs.totalPages, p + 1))
+                      }
+                    />
+                  ) : logTotal > DOCK_REPORT_PAGE_SIZE || logPage > 1 ? (
                     <View style={styles.dockReportPagination}>
                       <TouchableOpacity
                         style={[
@@ -3509,6 +3481,8 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
               }
                 {...FLATLIST_PERF_PROPS}
             />
+              );
+            })()}
               <ListLoadingOverlay
                 visible={isSoftListLoad(logsLoading, logsRefreshing, logs.length)}
                 label="Loading logs…"
@@ -4694,7 +4668,11 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                     <Text style={styles.stateText}>No day-wise qty found for this lot.</Text>
                   </View>
                 ) : (
-                  reportHistory.map((row, idx) => {
+                  (() => {
+                    const pagedHist = paginateList(reportHistory, reportHistoryPage, LIST_PAGE_SIZE);
+                    return (
+                  <>
+                  {pagedHist.items.map((row, idx) => {
                     const dateLabel = String(row.formatted_date || row.entry_date || '').slice(0, 10) || '—';
                     const timeLabel = formatReportTime(row);
                     const temp =
@@ -4746,7 +4724,17 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                         </Text>
                       </View>
                     );
-                  })
+                  })}
+                  <ListPageFooter
+                    page={pagedHist.page}
+                    pageSize={LIST_PAGE_SIZE}
+                    total={pagedHist.total}
+                    onPrev={() => setReportHistoryPage((p) => Math.max(1, p - 1))}
+                    onNext={() => setReportHistoryPage((p) => Math.min(pagedHist.totalPages, p + 1))}
+                  />
+                  </>
+                    );
+                  })()
                 )}
               </ScrollView>
             )}
@@ -4786,7 +4774,10 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                   <TouchableOpacity
                     key={f.id}
                     style={[styles.notifFilterChip, active && styles.notifFilterChipActive]}
-                    onPress={() => setNotifFilter(f.id)}
+                    onPress={() => {
+                      setNotifFilter(f.id);
+                      setNotifListPage(1);
+                    }}
                     activeOpacity={0.85}
                   >
                     <Text style={[styles.notifFilterText, active && styles.notifFilterTextActive]}>
@@ -4804,7 +4795,15 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                   <Text style={styles.stateText}>No Role & Permission requests here.</Text>
                 </View>
               ) : (
-                filteredNotifications.map((n) => {
+                (() => {
+                  const pagedNotifs = paginateList(
+                    filteredNotifications,
+                    notifListPage,
+                    LIST_PAGE_SIZE
+                  );
+                  return (
+                <>
+                {pagedNotifs.items.map((n) => {
                   const status = String(n.status || 'Pending');
                   const statusStyle =
                     status === 'Pending'
@@ -4864,7 +4863,17 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                       ) : null}
                     </View>
                   );
-                })
+                })}
+                <ListPageFooter
+                  page={pagedNotifs.page}
+                  pageSize={LIST_PAGE_SIZE}
+                  total={pagedNotifs.total}
+                  onPrev={() => setNotifListPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setNotifListPage((p) => Math.min(pagedNotifs.totalPages, p + 1))}
+                />
+                </>
+                  );
+                })()
               )}
             </ScrollView>
           </View>

@@ -51,7 +51,7 @@ const BOTTOM_SHEET_SCROLL_H = Math.max(180, BOTTOM_SHEET_MAX_H - 130);
 
 const TouchableOpacity = FastTouchable;
 
-const DOCK_REPORT_PAGE_SIZE = 20;
+const DOCK_REPORT_PAGE_SIZE = 15;
 const PENDING_CHAMBER_TYPE_KEY = 'pending_chamber_type_updates';
 const PENDING_CLIENT_MASTER_KEY = 'pending_client_master_ops';
 
@@ -125,6 +125,7 @@ import {
   GpsDetailRow,
 } from '../components/LogDetailPhotoLocation';
 import ListLoadingOverlay from '../components/ListLoadingOverlay';
+import { ChamberTempLogCard, DockMovementLogCard, ListPageFooter, paginateList, LIST_PAGE_SIZE } from '../components/LogListCards';
 import {
   FLATLIST_PERF_PROPS,
   isBlockingListLoad,
@@ -977,6 +978,10 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
   const [selectedReportDate, setSelectedReportDate] = useState(getLocalDateStr());
   const [reportDateFrom, setReportDateFrom] = useState(getLocalDateStr());
   const [reportDateTo, setReportDateTo] = useState(getLocalDateStr());
+  const [reportTempListPage, setReportTempListPage] = useState(1);
+  const [tasksListPage, setTasksListPage] = useState(1);
+  const [inventoryListPage, setInventoryListPage] = useState(1);
+  const [inventoryHistoryPage, setInventoryHistoryPage] = useState(1);
   const [calendarPickMode, setCalendarPickMode] = useState('from'); // 'from' | 'to'
   const [showCalendarModal, setShowCalendarModal] = useState(false);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
@@ -5767,6 +5772,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
     const completedOnly = options.completedOnly === true;
     const listTab = completedOnly ? 'Completed' : activeTab;
     const taskRows = getTasksScreenList(listTab);
+    const pagedTasks = paginateList(taskRows, tasksListPage, LIST_PAGE_SIZE);
 
     return (
       <View style={styles.tabContainer}>
@@ -5780,7 +5786,10 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
               <TouchableOpacity
                 key={tab}
                 style={[styles.filterTabButton, isActive && styles.filterTabButtonActive]}
-                onPress={() => setActiveTab(tab)}
+                onPress={() => {
+                  setActiveTab(tab);
+                  setTasksListPage(1);
+                }}
                 activeOpacity={0.85}
               >
                 <Text
@@ -6062,7 +6071,8 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
               </Text>
             </View>
           ) : (
-            taskRows.map((item, idx) => {
+            <>
+            {pagedTasks.items.map((item, idx) => {
               const isChamberRow = !!item.is_chamber_task;
               const targetDate = item.due_date || getLocalDateStr();
               const targetShiftName = item.shift_time === '10:00' ? 'Morning' : 'Evening';
@@ -6242,7 +6252,15 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                   </View>
                 </View>
               );
-            })
+            })}
+            <ListPageFooter
+              page={pagedTasks.page}
+              pageSize={LIST_PAGE_SIZE}
+              total={pagedTasks.total}
+              onPrev={() => setTasksListPage((p) => Math.max(1, p - 1))}
+              onNext={() => setTasksListPage((p) => Math.min(pagedTasks.totalPages, p + 1))}
+            />
+            </>
           )}
         </ScrollView>
       </View>
@@ -7194,6 +7212,10 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
     }
   }, [reportDateFrom, reportDateTo, currentNavTab, reportsMode, loadChamberReportLogs]);
 
+  useEffect(() => {
+    setReportTempListPage(1);
+  }, [reportDateFrom, reportDateTo, reportsMode]);
+
   const resolveReportLotType = (row) => {
     const clientNeedle = String(row?.client_name || '').trim().toLowerCase();
     const nameNeedle = String(row?.chamber_name || '').trim().toLowerCase();
@@ -7338,6 +7360,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
     async (row) => {
       setSelectedInventoryReport(row);
       setInventoryHistory([]);
+      setInventoryHistoryPage(1);
       setInventoryHistoryError('');
       setInventoryHistoryLoading(true);
       try {
@@ -7522,6 +7545,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       }
       return true;
     });
+    const pagedInventory = paginateList(filteredInventoryList, inventoryListPage, LIST_PAGE_SIZE);
 
     return (
       <Modal visible={showInventoryModal} animationType="slide" transparent={false} onRequestClose={() => setShowInventoryModal(false)}>
@@ -7605,10 +7629,11 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                   <ScrollView nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
                     <TouchableOpacity 
                       style={{ padding: 10, borderBottomWidth: 0.5, borderColor: '#f1f5f9' }}
-                      onPress={() => {
-                        setInventoryClientSearch('');
-                        setShowInventoryClientDropdown(false);
-                      }}
+                        onPress={() => {
+                          setInventoryClientSearch('');
+                          setInventoryListPage(1);
+                          setShowInventoryClientDropdown(false);
+                        }}
                     >
                       <Text style={{ fontSize: 11, color: '#0f172a', fontWeight: '700' }}>All Clients</Text>
                     </TouchableOpacity>
@@ -7618,6 +7643,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                         style={{ padding: 10, borderBottomWidth: 0.5, borderColor: '#f1f5f9' }}
                         onPress={() => {
                           setInventoryClientSearch(clientName);
+                          setInventoryListPage(1);
                           setShowInventoryClientDropdown(false);
                         }}
                       >
@@ -7677,6 +7703,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                       style={{ padding: 10, borderBottomWidth: 0.5, borderColor: '#f1f5f9' }}
                       onPress={() => {
                         setInventoryChamberSearch('');
+                        setInventoryListPage(1);
                         setShowInventoryChamberDropdown(false);
                       }}
                     >
@@ -7688,6 +7715,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                         style={{ padding: 10, borderBottomWidth: 0.5, borderColor: '#f1f5f9' }}
                         onPress={() => {
                           setInventoryChamberSearch(chamberName);
+                          setInventoryListPage(1);
                           setShowInventoryChamberDropdown(false);
                         }}
                       >
@@ -7708,7 +7736,8 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                 <Text style={[styles.reportsEmptyText, { marginTop: 10 }]}>No client inventory data matching filter.</Text>
               </View>
             ) : (
-              filteredInventoryList.map((item, idx) => {
+              <>
+              {pagedInventory.items.map((item, idx) => {
                 const latest = item.history[0];
                 const showTrend = item.history.length > 1;
                 const diff = showTrend ? (latest.boxCount - item.history[1].boxCount) : 0;
@@ -7775,7 +7804,15 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                     </View>
                   </View>
                 );
-              })
+              })}
+              <ListPageFooter
+                page={pagedInventory.page}
+                pageSize={LIST_PAGE_SIZE}
+                total={pagedInventory.total}
+                onPrev={() => setInventoryListPage((p) => Math.max(1, p - 1))}
+                onNext={() => setInventoryListPage((p) => Math.min(pagedInventory.totalPages, p + 1))}
+              />
+              </>
             )}
           </ScrollView>
         </SafeAreaView>
@@ -8482,45 +8519,21 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
               </View>
             ) : (
               <View style={{ flex: 1 }}>
+              {(() => {
+                const allTempLogs = getFilteredReportLogs();
+                const paged = paginateList(allTempLogs, reportTempListPage, LIST_PAGE_SIZE);
+                return (
               <FlatList
-                data={getFilteredReportLogs()}
+                data={paged.items}
                 keyExtractor={(item, idx) =>
                   `${item.server_log_id || item.id || 'log'}-${item.entry_date || 'd'}-${idx}`
                 }
-                renderItem={({ item }) => {
-                  const temp =
-                    item.box_temp != null
-                      ? `${item.box_temp}°C`
-                      : item.chamber_temp != null
-                        ? `${item.chamber_temp}°C`
-                        : '—';
-                  return (
-                    <TouchableOpacity
-                      style={styles.dailyCard}
-                      onPress={() => setSelectedReportLog(item)}
-                      activeOpacity={0.85}
-                    >
-                      <View style={styles.dailyTop}>
-                        <View style={styles.dailyTextCol}>
-                          <Text style={styles.dailyChamber} numberOfLines={1}>
-                            {item.client_name || 'Client'}
-                          </Text>
-                          <Text style={styles.dailyMetaLine} numberOfLines={1}>
-                            {item.chamber_name || 'Chamber'}
-                            {item.shift ? ` · ${item.shift}` : ''}
-                            {` · ${chamberZoneStyle(resolveReportLotType(item)).type}`}
-                          </Text>
-                        </View>
-                        <View style={styles.totalBoxesCol}>
-                          <Text style={styles.totalBoxesValue}>{temp}</Text>
-                          <Text style={styles.totalBoxesLabel}>
-                            {item.formatted_date || item.entry_date || '—'}
-                          </Text>
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                }}
+                renderItem={({ item }) => (
+                  <ChamberTempLogCard
+                    item={item}
+                    onPress={() => setSelectedReportLog(item)}
+                  />
+                )}
                 contentContainerStyle={styles.reportsListBody}
                 refreshControl={
                   <RefreshControl
@@ -8533,6 +8546,17 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                     }}
                   />
                 }
+                ListFooterComponent={
+                  <ListPageFooter
+                    page={paged.page}
+                    pageSize={LIST_PAGE_SIZE}
+                    total={paged.total}
+                    onPrev={() => setReportTempListPage((p) => Math.max(1, p - 1))}
+                    onNext={() =>
+                      setReportTempListPage((p) => Math.min(paged.totalPages, p + 1))
+                    }
+                  />
+                }
                 ListEmptyComponent={
                   <View style={styles.reportsCenterState}>
                     <Ionicons name="thermometer-outline" size={28} color="#94a3b8" />
@@ -8541,6 +8565,8 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                 }
                 {...FLATLIST_PERF_PROPS}
               />
+                );
+              })()}
               <ListLoadingOverlay
                 visible={isSoftListLoad(
                   chamberReportsLoading,
@@ -8764,6 +8790,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                     onPress={() => {
                       setDetailDateFrom('');
                       setDetailDateTo('');
+                      setInventoryHistoryPage(1);
                     }}
                   >
                     <Text style={{ fontSize: 11, fontWeight: '700', color: '#ef4444' }}>Clear</Text>
@@ -8814,7 +8841,15 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                           <Text style={styles.reportsStateText}>No logs found for chosen dates.</Text>
                         </View>
                       ) : (
-                        filteredHistory.map((row, idx) => {
+                        (() => {
+                          const pagedHist = paginateList(
+                            filteredHistory,
+                            inventoryHistoryPage,
+                            LIST_PAGE_SIZE
+                          );
+                          return (
+                        <>
+                        {pagedHist.items.map((row, idx) => {
                           const dateLabel =
                             String(row.formatted_date || row.entry_date || '').slice(0, 10) || '—';
                           const timeLabel = formatInventoryReportTime(row);
@@ -8871,7 +8906,19 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                               </Text>
                             </TouchableOpacity>
                           );
-                        })
+                        })}
+                        <ListPageFooter
+                          page={pagedHist.page}
+                          pageSize={LIST_PAGE_SIZE}
+                          total={pagedHist.total}
+                          onPrev={() => setInventoryHistoryPage((p) => Math.max(1, p - 1))}
+                          onNext={() =>
+                            setInventoryHistoryPage((p) => Math.min(pagedHist.totalPages, p + 1))
+                          }
+                        />
+                        </>
+                          );
+                        })()
                       )}
                     </ScrollView>
                   );
@@ -11642,6 +11689,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                         }
                         setDetailDateFrom(nextFrom);
                         setDetailDateTo(nextTo);
+                        setInventoryHistoryPage(1);
                         setDetailCalendarPickMode('from');
                         setDetailCalendarOpen(false);
                       }
@@ -12427,53 +12475,13 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
             </View>
           }
           {...FLATLIST_PERF_PROPS}
-          renderItem={({ item }) => {
-            const received = item.inward_received_boxes_qty ?? item.inward_received_qty;
-            const rightValue =
-              item.inward_material_temp != null
-                ? `${item.inward_material_temp}°C`
-                : item.inward_vehicle_temp != null
-                  ? `${item.inward_vehicle_temp}°C`
-                  : received != null
-                    ? String(received)
-                    : '—';
-            const vehicleOrDock = item.inward_vehicle_no
-              ? `Vehicle ${item.inward_vehicle_no}`
-              : item.inward_dock_no
-                ? `Dock ${item.inward_dock_no}`
-                : '—';
-            const podVal = String(item.inward_pod_photo || '').trim();
-            const podMissing = !podVal || podVal === 'null' || podVal === 'undefined';
-            return (
-              <TouchableOpacity
-                style={styles.dockLogCard}
-                activeOpacity={0.85}
-                onPress={() => setSelectedInwardReport(item)}
-              >
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <View style={styles.dockLogTitleRow}>
-                    <Text style={styles.dockLogTypeTag}>Inward</Text>
-                    <Text style={styles.dockLogClient} numberOfLines={1}>
-                      {item.inward_client_name || 'Client'}
-                    </Text>
-                    {podMissing ? (
-                      <View style={styles.inwardPodMissingBadge}>
-                        <Text style={styles.inwardPodMissingBadgeText}>POD</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text style={styles.dockLogMeta} numberOfLines={2}>
-                    {vehicleOrDock}
-                    {item.warehouse_name ? ` · ${item.warehouse_name}` : ''}
-                    {' · '}
-                    {String(item.inward_entry_date || '').slice(0, 10) || '—'}
-                    {item.inward_material_type ? ` · ${item.inward_material_type}` : ''}
-                  </Text>
-                </View>
-                <Text style={styles.dockLogTemp}>{rightValue}</Text>
-              </TouchableOpacity>
-            );
-          }}
+          renderItem={({ item }) => (
+            <DockMovementLogCard
+              item={item}
+              mode="inward"
+              onPress={() => setSelectedInwardReport(item)}
+            />
+          )}
         />
         <ListLoadingOverlay
           visible={isSoftListLoad(
@@ -13172,54 +13180,13 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
             </View>
           }
           {...FLATLIST_PERF_PROPS}
-          renderItem={({ item }) => {
-            const loaded = item.outward_received_boxes_qty ?? item.outward_received_qty;
-            const preVehicleTemp = item.outward_pre_vehicle_temp ?? item.outward_vehicle_temp;
-            const rightValue =
-              item.outward_material_temp != null
-                ? `${item.outward_material_temp}°C`
-                : preVehicleTemp != null
-                  ? `${preVehicleTemp}°C`
-                  : loaded != null
-                    ? String(loaded)
-                    : '—';
-            const vehicleOrDock = item.outward_vehicle_no
-              ? `Vehicle ${item.outward_vehicle_no}`
-              : item.outward_dock_no
-                ? `Dock ${item.outward_dock_no}`
-                : '—';
-            const podVal = String(item.outward_pod_photo || '').trim();
-            const podMissing = !podVal || podVal === 'null' || podVal === 'undefined';
-            return (
-              <TouchableOpacity
-                style={styles.dockLogCard}
-                activeOpacity={0.85}
-                onPress={() => setSelectedOutwardReport(item)}
-              >
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <View style={styles.dockLogTitleRow}>
-                    <Text style={[styles.dockLogTypeTag, styles.dockLogTypeTagOut]}>Outward</Text>
-                    <Text style={styles.dockLogClient} numberOfLines={1}>
-                      {item.outward_client_name || 'Client'}
-                    </Text>
-                    {podMissing ? (
-                      <View style={styles.inwardPodMissingBadge}>
-                        <Text style={styles.inwardPodMissingBadgeText}>POD</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text style={styles.dockLogMeta} numberOfLines={2}>
-                    {vehicleOrDock}
-                    {item.warehouse_name ? ` · ${item.warehouse_name}` : ''}
-                    {' · '}
-                    {String(item.outward_entry_date || '').slice(0, 10) || '—'}
-                    {item.outward_material_type ? ` · ${item.outward_material_type}` : ''}
-                  </Text>
-                </View>
-                <Text style={styles.dockLogTemp}>{rightValue}</Text>
-              </TouchableOpacity>
-            );
-          }}
+          renderItem={({ item }) => (
+            <DockMovementLogCard
+              item={item}
+              mode="outward"
+              onPress={() => setSelectedOutwardReport(item)}
+            />
+          )}
         />
         <ListLoadingOverlay
           visible={isSoftListLoad(
