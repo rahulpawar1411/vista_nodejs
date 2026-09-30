@@ -21,7 +21,6 @@ export function buildReportReadingRows(items) {
   const timeKey = (row) => {
     const candidates = [
       row.created_at,
-      row.updated_at,
       row.submit_time,
       row.photo_capture_time,
       row.inspection_time

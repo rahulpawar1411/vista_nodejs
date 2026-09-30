@@ -28,6 +28,7 @@ import {
   Platform,
   BackHandler,
   Dimensions,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import FastTouchable from '../components/FastTouchable';
@@ -50,6 +51,7 @@ import { formatUserError } from '../utils/userFacingError';
 import { ImagePreviewModal, GpsDetailRow, PhotoGridWithLocation } from '../components/LogDetailPhotoLocation';
 import ListLoadingOverlay from '../components/ListLoadingOverlay';
 import { ChamberTempLogCard, DockMovementLogCard, ListPageFooter, paginateList, LIST_PAGE_SIZE } from '../components/LogListCards';
+import TempTimeSeriesPlot from '../components/TempTimeSeriesPlot';
 import InlineErrorState from '../components/InlineErrorState';
 import {
   FLATLIST_PERF_PROPS,
@@ -704,122 +706,6 @@ function buildDailyTempTaskRows({ logs, clientNames, rangeStart, rangeEnd, normN
   return rows;
 }
 
-/** 3-segment donut: Completed / Bad reading / Pending. */
-function TempTaskStatusDonut({ completed = 0, bad = 0, pending = 0 }) {
-  const size = 118;
-  const ring = 22;
-  const segments = 72;
-  const radius = (size - ring) / 2;
-  const c = Number(completed) || 0;
-  const b = Number(bad) || 0;
-  const p = Number(pending) || 0;
-  const total = c + b + p;
-  const cSegs = total > 0 ? Math.round((c / total) * segments) : 0;
-  const bSegs = total > 0 ? Math.round((b / total) * segments) : 0;
-
-  const legend = [
-    { key: 'completed', label: 'Completed', color: TEMP_TASK_COMPLETED, count: c },
-    { key: 'bad', label: 'Bad reading', color: TEMP_TASK_BAD, count: b },
-    { key: 'pending', label: 'Pending', color: TEMP_TASK_PENDING, count: p }
-  ];
-
-  if (total === 0) {
-    return (
-      <Text style={{ fontSize: 12, color: '#94a3b8' }}>
-        No daily temp tasks in this date range.
-      </Text>
-    );
-  }
-
-  return (
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingTop: 6,
-        paddingBottom: 4,
-        gap: 14
-      }}
-    >
-      <View style={{ width: size, height: size, flexShrink: 0 }}>
-        {Array.from({ length: segments }).map((_, i) => {
-          const angle = (i / segments) * 360 - 90;
-          const rad = (angle * Math.PI) / 180;
-          const cx = size / 2 + Math.cos(rad) * radius;
-          const cy = size / 2 + Math.sin(rad) * radius;
-          let color = TEMP_TASK_PENDING;
-          if (i < cSegs) color = TEMP_TASK_COMPLETED;
-          else if (i < cSegs + bSegs) color = TEMP_TASK_BAD;
-          return (
-            <View
-              key={`tseg-${i}`}
-              pointerEvents="none"
-              style={{
-                position: 'absolute',
-                left: cx - 3,
-                top: cy - ring / 2,
-                width: 6.5,
-                height: ring,
-                backgroundColor: color,
-                transform: [{ rotate: `${angle + 90}deg` }]
-              }}
-            />
-          );
-        })}
-        <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            left: ring + 2,
-            top: ring + 2,
-            right: ring + 2,
-            bottom: ring + 2,
-            borderRadius: 999,
-            backgroundColor: '#ffffff',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}
-        >
-          <Text style={{ fontSize: 20, fontWeight: '900', color: '#0f172a' }}>{total}</Text>
-          <Text style={{ fontSize: 10, fontWeight: '700', color: '#64748b' }}>Tasks</Text>
-        </View>
-      </View>
-      <View style={{ flex: 1, justifyContent: 'center', gap: 12, minWidth: 0 }}>
-        {legend.map((row) => (
-          <View
-            key={row.key}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 8
-            }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 }}>
-              <View
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: 5,
-                  backgroundColor: row.color,
-                  flexShrink: 0
-                }}
-              />
-              <Text
-                style={{ fontSize: 12, fontWeight: '600', color: '#334155' }}
-                numberOfLines={1}
-              >
-                {row.label}
-              </Text>
-            </View>
-            <Text style={{ fontSize: 13, fontWeight: '800', color: row.color }}>{row.count}</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
 /** OOR delta for detail hero: type + how much below/above band. */
 function getTempComplianceHeroMeta(temp, chamberType) {
   const type =
@@ -1058,7 +944,6 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
   const [dynamicClients, setDynamicClients] = useState([]);
   const [warehouseClientsMap, setWarehouseClientsMap] = useState({});
   const [todayLogItems, setTodayLogItems] = useState([]);
-  const [homeUpdates, setHomeUpdates] = useState([]);
   const [homeLoading, setHomeLoading] = useState(false);
   const [homeRefreshing, setHomeRefreshing] = useState(false);
   const [homeError, setHomeError] = useState('');
@@ -1074,26 +959,31 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
   const [overviewHomeSection, setOverviewHomeSection] = useState('temperature'); // temperature | inout
   const [overviewTempDateFrom, setOverviewTempDateFrom] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 6);
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    return `${y}-${m}-01`;
   });
   const [overviewTempDateTo, setOverviewTempDateTo] = useState(() => {
     const d = new Date();
     const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    const m = d.getMonth() + 1;
+    const last = new Date(y, m, 0).getDate();
+    return `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
   });
   const [overviewTempTasks, setOverviewTempTasks] = useState([]);
   const [overviewTempListFilter, setOverviewTempListFilter] = useState('completed'); // all | completed | bad | pending
   const [overviewTempZoneFilter, setOverviewTempZoneFilter] = useState('Frozen'); // Frozen | Chilled | Dry | Other
-  const [overviewTempShift, setOverviewTempShift] = useState(
-    () => (new Date().getHours() >= 16 ? 'Evening' : 'Morning')
-  );
   const [overviewTempListPage, setOverviewTempListPage] = useState(1);
+  const [overviewTempRangePreset, setOverviewTempRangePreset] = useState('month'); // week | month | year | custom
+  const [overviewTempSelectedWeek, setOverviewTempSelectedWeek] = useState('all'); // 'all' | '1-7' | '8-14' | …
+  const [overviewTempSelectedMonth, setOverviewTempSelectedMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [overviewTempSelectedYear, setOverviewTempSelectedYear] = useState(() =>
+    String(new Date().getFullYear())
+  );
+  const [showTempRangePicker, setShowTempRangePicker] = useState(null); // 'week' | 'month' | 'year' | null
   const [logsTempSearch, setLogsTempSearch] = useState('');
   const [logsTempListPage, setLogsTempListPage] = useState(1);
   const [overviewLoading, setOverviewLoading] = useState(false);
@@ -1292,8 +1182,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
     setLogSearch('');
     setLogPage(1);
     if (logsReportsMode === 'inward' || logsReportsMode === 'outward') {
-      const today = toLocalYmd();
-      applyDateRange(today, today);
+      applyDateRange('All', 'All');
     } else {
       clearLogsReportFilters();
     }
@@ -1458,7 +1347,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
     setShowCalendarModal(true);
   };
 
-  const applyOverviewTempRange = useCallback((from, to) => {
+  const applyOverviewTempRange = useCallback((from, to, preset = 'custom') => {
     let nextFrom = String(from || '').trim();
     let nextTo = String(to || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(nextFrom)) return;
@@ -1471,7 +1360,135 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
     setOverviewTempDateFrom(nextFrom);
     setOverviewTempDateTo(nextTo);
     setOverviewTempListPage(1);
+    setOverviewTempRangePreset(preset);
   }, []);
+
+  const TEMP_MONTH_LABELS = useMemo(
+    () => [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ],
+    []
+  );
+
+  const overviewTempWeekOptions = useMemo(() => {
+    const [y, m] = String(overviewTempSelectedMonth || '')
+      .split('-')
+      .map(Number);
+    if (!y || !m) return [{ id: 'all', from: '', to: '', label: 'All' }];
+    const last = new Date(y, m, 0).getDate();
+    const mm = String(m).padStart(2, '0');
+    const opts = [
+      {
+        id: 'all',
+        from: `${y}-${mm}-01`,
+        to: `${y}-${mm}-${String(last).padStart(2, '0')}`,
+        label: 'All'
+      }
+    ];
+    for (let startDay = 1; startDay <= last; startDay += 7) {
+      const endDay = Math.min(startDay + 6, last);
+      const weekNum = Math.floor((startDay - 1) / 7) + 1;
+      opts.push({
+        id: `${startDay}-${endDay}`,
+        from: `${y}-${mm}-${String(startDay).padStart(2, '0')}`,
+        to: `${y}-${mm}-${String(endDay).padStart(2, '0')}`,
+        label: `Week ${weekNum}`
+      });
+    }
+    return opts;
+  }, [overviewTempSelectedMonth]);
+
+  const overviewTempMonthOptions = useMemo(() => {
+    const opts = [];
+    const now = new Date();
+    for (let i = 0; i < 12; i += 1) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const y = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      opts.push({
+        id: `${y}-${mo}`,
+        label: `${TEMP_MONTH_LABELS[d.getMonth()]} ${y}`
+      });
+    }
+    return opts;
+  }, [TEMP_MONTH_LABELS]);
+
+  const overviewTempYearOptions = useMemo(() => {
+    const y = new Date().getFullYear();
+    return [0, 1, 2, 3, 4].map((i) => {
+      const yr = String(y - i);
+      return { id: yr, label: yr };
+    });
+  }, []);
+
+  const applyOverviewTempWeek = useCallback(
+    (weekId) => {
+      const hit = overviewTempWeekOptions.find((o) => o.id === weekId);
+      if (!hit?.from || !hit?.to) return;
+      setOverviewTempSelectedWeek(hit.id);
+      setShowTempRangePicker(null);
+      applyOverviewTempRange(hit.from, hit.to, 'week');
+    },
+    [applyOverviewTempRange, overviewTempWeekOptions]
+  );
+
+  const applyOverviewTempCalendarMonth = useCallback(
+    (ym) => {
+      const [y, m] = String(ym || '').split('-').map(Number);
+      if (!y || !m || m < 1 || m > 12) return;
+      const mm = String(m).padStart(2, '0');
+      const from = `${y}-${mm}-01`;
+      const lastDay = new Date(y, m, 0).getDate();
+      const to = `${y}-${mm}-${String(lastDay).padStart(2, '0')}`;
+      setOverviewTempSelectedMonth(`${y}-${mm}`);
+      setOverviewTempSelectedWeek('all');
+      setShowTempRangePicker(null);
+      applyOverviewTempRange(from, to, 'month');
+    },
+    [applyOverviewTempRange]
+  );
+
+  const applyOverviewTempYear = useCallback(
+    (yearStr) => {
+      const y = Number(yearStr);
+      if (!Number.isFinite(y) || y < 2000) return;
+      const from = `${y}-01-01`;
+      const now = new Date();
+      const to =
+        y === now.getFullYear()
+          ? toLocalYmd(now)
+          : `${y}-12-31`;
+      const mo = y === now.getFullYear() ? now.getMonth() + 1 : 1;
+      setOverviewTempSelectedYear(String(y));
+      setOverviewTempSelectedMonth(`${y}-${String(mo).padStart(2, '0')}`);
+      setOverviewTempSelectedWeek('all');
+      setShowTempRangePicker(null);
+      applyOverviewTempRange(from, to, 'year');
+    },
+    [applyOverviewTempRange]
+  );
+
+  const applyOverviewTempPreset = useCallback(
+    (preset) => {
+      if (preset === 'week' || preset === 'month' || preset === 'year') {
+        setShowTempRangePicker(preset);
+        return;
+      }
+      setShowTempRangePicker(null);
+    },
+    []
+  );
 
   const openOverviewTempCalendar = (mode = 'from') => {
     setOpenFilter(null);
@@ -2068,48 +2085,22 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
         /* keep cached profile */
       }
       const today = toLocalYmd();
-      const fromUpdates = (() => {
-        const d = new Date();
-        d.setDate(d.getDate() - 14);
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
-      })();
 
-      const [todayRes, updatesRes] = await Promise.all([
-        fetch(
-          `${apiUrl}/api/chamber-temp?${new URLSearchParams({
-            page: '1',
-            limit: '100',
-            fromDate: today,
-            toDate: today
-          }).toString()}`,
-          {
-            method: 'GET',
-            headers: {
-              Accept: 'application/json',
-              Authorization: `Bearer ${token}`
-            }
+      const todayRes = await fetch(
+        `${apiUrl}/api/chamber-temp?${new URLSearchParams({
+          page: '1',
+          limit: '100',
+          fromDate: today,
+          toDate: today
+        }).toString()}`,
+        {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${token}`
           }
-        ),
-        fetch(
-          `${apiUrl}/api/chamber-temp?${new URLSearchParams({
-            page: '1',
-            limit: '100',
-            fromDate: fromUpdates,
-            toDate: today,
-            export: '1'
-          }).toString()}`,
-          {
-            method: 'GET',
-            headers: {
-              Accept: 'application/json',
-              Authorization: `Bearer ${token}`
-            }
-          }
-        )
-      ]);
+        }
+      );
 
       const todayData = await todayRes.json().catch(() => ({}));
       if (!todayRes.ok) {
@@ -2131,30 +2122,8 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
         return d === today;
       });
       setTodayLogItems(scopedToday);
-
-      const updatesData = await updatesRes.json().catch(() => ({}));
-      const updateItems = Array.isArray(updatesData?.items)
-        ? updatesData.items
-        : Array.isArray(updatesData)
-          ? updatesData
-          : [];
-      const scopedUpdates = applyScope(updateItems)
-        .filter((row) => Number(row.update_count) > 0 || String(row.update_details || '').trim())
-        .sort((a, b) => {
-          const ta = String(a.updated_at || a.created_at || '')
-            .replace('T', ' ')
-            .slice(0, 19);
-          const tb = String(b.updated_at || b.created_at || '')
-            .replace('T', ' ')
-            .slice(0, 19);
-          if (tb !== ta) return tb.localeCompare(ta);
-          return (Number(b.id) || 0) - (Number(a.id) || 0);
-        })
-        .slice(0, 12);
-      setHomeUpdates(scopedUpdates);
     } catch (err) {
       setTodayLogItems([]);
-      setHomeUpdates([]);
       setHomeError(formatUserError(err, { apiUrl, context: 'Failed to load overview' }));
     } finally {
       setHomeLoading(false);
@@ -2162,16 +2131,6 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
     }
   }, [apiUrl, token, applyScope, onUserUpdate]);
 
-  const formatUpdatePreview = (row) => {
-    const raw = String(row?.update_details || '').trim();
-    if (!raw) {
-      const n = Number(row?.update_count) || 0;
-      return n > 0 ? `Updated ${n} time${n === 1 ? '' : 's'}` : 'Updated';
-    }
-    const parts = raw.split('|').map((p) => p.trim()).filter(Boolean);
-    const last = parts[parts.length - 1] || raw;
-    return last.length > 90 ? `${last.slice(0, 90)}…` : last;
-  };
   const loadLogs = useCallback(async (overrides = {}) => {
     if (!apiUrl || !token) return;
     setLogsLoading(true);
@@ -2276,16 +2235,21 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
   ]);
 
   const applyDockLogFilters = useCallback(() => {
+    Keyboard.dismiss();
+    const q = String(logSearch || '').trim();
     setLogPage(1);
-    loadLogs({ page: 1 });
-  }, [loadLogs]);
+    // No date selected (All) → search across all dates
+    const from = dateFrom === 'All' ? '' : dateFrom;
+    const to = dateTo === 'All' ? '' : dateTo;
+    loadLogs({ page: 1, search: q, fromDate: from, toDate: to });
+  }, [loadLogs, logSearch, dateFrom, dateTo]);
 
   const clearDockLogFilters = useCallback(() => {
-    const today = toLocalYmd();
+    Keyboard.dismiss();
     setLogSearch('');
     setLogPage(1);
-    applyDateRange(today, today);
-    loadLogs({ page: 1, search: '', fromDate: today, toDate: today });
+    applyDateRange('All', 'All');
+    loadLogs({ page: 1, search: '', fromDate: '', toDate: '' });
   }, [loadLogs]);
 
   const goLogPrevPage = useCallback(() => {
@@ -2441,7 +2405,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
     allowedClients
   ]);
 
-  /** LIFO: last-in (newest DO audit / update) first on outer Reports list */
+  /** LIFO: newest entry / audit first — never Super Admin edit timestamp */
   const sortLotsLifo = (rows) =>
     [...(rows || [])].sort((a, b) => {
       const dateA = String(a.last_audit_date || a.formatted_date || a.entry_date || '')
@@ -2454,10 +2418,10 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
         return dateB.localeCompare(dateA);
       }
       const timeA = String(
-        a.updated_at || a.created_at || a.last_audit_date || ''
+        a.created_at || a.last_audit_date || a.photo_capture_time || ''
       ).replace('T', ' ').slice(0, 19);
       const timeB = String(
-        b.updated_at || b.created_at || b.last_audit_date || ''
+        b.created_at || b.last_audit_date || b.photo_capture_time || ''
       ).replace('T', ' ').slice(0, 19);
       if (timeB !== timeA) {
         if (!timeA) return 1;
@@ -2638,7 +2602,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
       return 0;
     };
     const timeKey = (log) =>
-      String(log?.updated_at || log?.created_at || log?.photo_capture_time || log?.inspection_time || '');
+      String(log?.created_at || log?.photo_capture_time || log?.inspection_time || '');
     const searchQ = String(logsTempSearch || '').trim().toLowerCase();
 
     return chamberReportLogs
@@ -2662,7 +2626,8 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
           if (resolveReportLotType(log) !== normalizeChamberZone(logsTypeFilter)) return false;
         }
         const entryDay = logDateKey(log.entry_date || log.formatted_date);
-        if (entryDay && (entryDay < from || entryDay > to)) return false;
+        // With an active search, do not hide matches outside the date chips
+        if (!searchQ && entryDay && (entryDay < from || entryDay > to)) return false;
         if (searchQ) {
           const hay = [
             log.client_name,
@@ -2752,6 +2717,52 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
     logsReportDateTo,
     applyScope,
   ]);
+
+  const runTempLogSearch = useCallback(async () => {
+    Keyboard.dismiss();
+    setLogsTempListPage(1);
+    const q = String(logsTempSearch || '').trim();
+    // Search without requiring a date filter — query all matching logs
+    if (!q) {
+      await loadChamberReportLogs();
+      return;
+    }
+    if (!apiUrl || !token) return;
+    setChamberReportsLoading(true);
+    setChamberReportsError('');
+    try {
+      const qs = new URLSearchParams({
+        page: '1',
+        limit: '200',
+        export: '1',
+        search: q,
+      });
+      const res = await fetch(`${apiUrl}/api/chamber-temp?${qs.toString()}`, {
+        headers: authHeaders,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || data.error || `Failed to search (${res.status})`);
+      }
+      const items = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data)
+          ? data
+          : [];
+      setChamberReportLogs(applyScope(items.map((row) => normalizeLogRow(row, 'chambers'))));
+    } catch (err) {
+      setChamberReportsError(err.message || 'Search failed.');
+    } finally {
+      setChamberReportsLoading(false);
+    }
+  }, [apiUrl, token, authHeaders, logsTempSearch, applyScope, loadChamberReportLogs]);
+
+  const clearTempLogSearch = useCallback(() => {
+    Keyboard.dismiss();
+    setLogsTempSearch('');
+    setLogsTempListPage(1);
+    loadChamberReportLogs();
+  }, [loadChamberReportLogs]);
 
   const inventorySummary = useMemo(() => {
     let totalBoxes = 0;
@@ -3384,7 +3395,6 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
         </TouchableOpacity>
       </View>
       <View style={styles.taskSearchRow}>
-        <Ionicons name="search-outline" size={14} color="#64748b" />
         <TextInput
           style={styles.taskSearchInput}
           placeholder="Search client, chamber, warehouse…"
@@ -3394,9 +3404,28 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
             setLogsTempSearch(txt);
             setLogsTempListPage(1);
           }}
+          onSubmitEditing={runTempLogSearch}
           returnKeyType="search"
-          clearButtonMode="while-editing"
+          blurOnSubmit
         />
+        {String(logsTempSearch || '').trim() ? (
+          <TouchableOpacity
+            style={styles.taskSearchClearBtn}
+            onPress={clearTempLogSearch}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
+            accessibilityLabel="Clear search"
+          >
+            <Ionicons name="close-circle" size={18} color="#94a3b8" />
+          </TouchableOpacity>
+        ) : null}
+        <TouchableOpacity
+          style={styles.taskSearchActionBtn}
+          onPress={runTempLogSearch}
+          activeOpacity={0.85}
+          accessibilityLabel="Search"
+        >
+          <Ionicons name="search" size={16} color="#ffffff" />
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -3628,8 +3657,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                     setClientFilter('All');
                     setLogSearch('');
                     setLogPage(1);
-                    const today = toLocalYmd();
-                    applyDateRange(today, today);
+                    applyDateRange('All', 'All');
                   }
                 }}
               >
@@ -3796,7 +3824,6 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                 </TouchableOpacity>
               </View>
               <View style={[styles.taskSearchRow, { marginTop: 6 }]}>
-                <Ionicons name="search-outline" size={14} color="#64748b" />
                 <TextInput
                   style={styles.taskSearchInput}
                   placeholder="Search vehicle, client, ref…"
@@ -3808,8 +3835,31 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                   }}
                   onSubmitEditing={applyDockLogFilters}
                   returnKeyType="search"
-                  clearButtonMode="while-editing"
+                  blurOnSubmit
                 />
+                {String(logSearch || '').trim() ? (
+                  <TouchableOpacity
+                    style={styles.taskSearchClearBtn}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setLogSearch('');
+                      setLogPage(1);
+                      loadLogs({ page: 1, search: '' });
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
+                    accessibilityLabel="Clear search"
+                  >
+                    <Ionicons name="close-circle" size={18} color="#94a3b8" />
+                  </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity
+                  style={styles.taskSearchActionBtn}
+                  onPress={applyDockLogFilters}
+                  activeOpacity={0.85}
+                  accessibilityLabel="Search"
+                >
+                  <Ionicons name="search" size={16} color="#ffffff" />
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -4133,7 +4183,6 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
             ['Excess qty', excessQty > 0 ? String(excessQty) : '0'],
             ['Damage qty', damageQty > 0 ? String(damageQty) : '0'],
             ['Supervisor', item.inward_unloading_supervisor_name],
-            ['Remarks', item.inward_remarks],
           ],
         },
       ];
@@ -4270,7 +4319,6 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
             ['Excess qty', excessQty > 0 ? String(excessQty) : '0'],
             ['Damage qty', damageQty > 0 ? String(damageQty) : '0'],
             ['Supervisor', item.outward_loading_supervisor_name],
-            ['Remarks', item.outward_remarks],
           ],
         },
       ];
@@ -4443,12 +4491,6 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                 'Time variance',
                 item.time_variance_minutes != null ? `${item.time_variance_minutes} min` : null
               )}
-              {renderDoDetailRow('Remarks', item.remarks)}
-              {renderDoDetailRow(
-                'Updates',
-                item.update_count != null && Number(item.update_count) > 0 ? String(item.update_count) : null
-              )}
-              {renderDoDetailRow('Update details', item.update_details)}
             </View>
             {item._taskStatus === 'pending' ? null : (
             <View style={styles.doDetailCard}>
@@ -4836,40 +4878,146 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                       </View>
 
                       <View style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}>
-                        {['Morning', 'Evening'].map((shift) => {
-                          const active = overviewTempShift === shift;
+                        {[
+                          {
+                            id: 'year',
+                            label: overviewTempSelectedYear || 'Year'
+                          },
+                          {
+                            id: 'month',
+                            label:
+                              overviewTempMonthOptions.find(
+                                (o) => o.id === overviewTempSelectedMonth
+                              )?.label || 'Month'
+                          },
+                          {
+                            id: 'week',
+                            label:
+                              overviewTempWeekOptions.find(
+                                (o) => o.id === overviewTempSelectedWeek
+                              )?.label || 'Week'
+                          }
+                        ].map((btn) => {
+                          const active = overviewTempRangePreset === btn.id;
                           return (
                             <TouchableOpacity
-                              key={shift}
-                              onPress={() => {
-                                setOverviewTempShift(shift);
-                                setOverviewTempListPage(1);
-                              }}
+                              key={btn.id}
+                              onPress={() => applyOverviewTempPreset(btn.id)}
                               activeOpacity={0.85}
                               style={[
                                 styles.overviewShiftChip,
-                                { flex: 1, justifyContent: 'center' },
+                                {
+                                  flex: 1,
+                                  justifyContent: 'center',
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 4
+                                },
                                 active && styles.overviewShiftChipActive
                               ]}
                             >
-                              <Ionicons
-                                name={shift === 'Morning' ? 'sunny-outline' : 'moon-outline'}
-                                size={12}
-                                color={active ? '#ffffff' : '#003580'}
-                              />
                               <Text
                                 style={[
                                   styles.overviewShiftChipText,
-                                  active && styles.overviewShiftChipTextActive
+                                  active && styles.overviewShiftChipTextActive,
+                                  { flexShrink: 1, fontSize: btn.id === 'week' ? 10 : 11 }
                                 ]}
                                 numberOfLines={1}
                               >
-                                {shift}
+                                {btn.label}
                               </Text>
+                              <Ionicons
+                                name="chevron-down"
+                                size={12}
+                                color={active ? '#003580' : '#94a3b8'}
+                              />
                             </TouchableOpacity>
                           );
                         })}
                       </View>
+
+                      <Modal
+                        visible={Boolean(showTempRangePicker)}
+                        transparent
+                        animationType="slide"
+                        onRequestClose={() => setShowTempRangePicker(null)}
+                      >
+                        <View style={styles.filterModalBackdrop}>
+                          <TouchableOpacity
+                            style={StyleSheet.absoluteFill}
+                            activeOpacity={1}
+                            pressBorder={false}
+                            onPress={() => setShowTempRangePicker(null)}
+                          />
+                          <View style={styles.filterModalSheet}>
+                            <View style={styles.filterModalHandle} />
+                            <Text style={styles.filterModalTitle}>
+                              {showTempRangePicker === 'week'
+                                ? 'Select week'
+                                : showTempRangePicker === 'year'
+                                  ? 'Select year'
+                                  : 'Select month'}
+                            </Text>
+                            <ScrollView
+                              style={styles.filterModalList}
+                              keyboardShouldPersistTaps="handled"
+                              showsVerticalScrollIndicator={false}
+                            >
+                              {(showTempRangePicker === 'week'
+                                ? overviewTempWeekOptions
+                                : showTempRangePicker === 'year'
+                                  ? overviewTempYearOptions
+                                  : overviewTempMonthOptions
+                              ).map((opt) => {
+                                const active =
+                                  showTempRangePicker === 'week'
+                                    ? overviewTempSelectedWeek === opt.id
+                                    : showTempRangePicker === 'year'
+                                      ? overviewTempSelectedYear === opt.id
+                                      : overviewTempSelectedMonth === opt.id;
+                                return (
+                                  <TouchableOpacity
+                                    key={opt.id}
+                                    onPress={() => {
+                                      if (showTempRangePicker === 'week') {
+                                        applyOverviewTempWeek(opt.id);
+                                      } else if (showTempRangePicker === 'year') {
+                                        applyOverviewTempYear(opt.id);
+                                      } else {
+                                        applyOverviewTempCalendarMonth(opt.id);
+                                      }
+                                    }}
+                                    activeOpacity={0.85}
+                                    style={[
+                                      styles.filterModalItem,
+                                      active && styles.filterModalItemActive
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.filterModalItemText,
+                                        active && styles.filterModalItemTextActive
+                                      ]}
+                                    >
+                                      {opt.label}
+                                    </Text>
+                                    {active ? (
+                                      <Ionicons name="checkmark" size={16} color="#003580" />
+                                    ) : null}
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </ScrollView>
+                            <TouchableOpacity
+                              style={styles.filterModalClose}
+                              onPress={() => setShowTempRangePicker(null)}
+                              activeOpacity={0.85}
+                            >
+                              <Text style={styles.filterModalCloseText}>Close</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      </Modal>
 
                       {(() => {
                         const resolveTaskZone = (row) => {
@@ -4880,10 +5028,18 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                             'Other'
                           );
                         };
-                        const zones = ['Frozen', 'Chilled', 'Dry', 'Other'];
-                        const shiftTasks = overviewTempTasks.filter(
-                          (t) => t.shift === overviewTempShift
-                        );
+                        const isFilledReading = (t) => {
+                          if (t.status === 'pending') return false;
+                          if (t.temp == null || t.temp === '') return false;
+                          return Number.isFinite(Number(t.temp));
+                        };
+                        const isFilledMorning = (t) => {
+                          if (!isFilledReading(t)) return false;
+                          const sh = String(t.shift || '').toLowerCase();
+                          if (sh.startsWith('eve')) return false;
+                          return true;
+                        };
+                        const shiftTasks = overviewTempTasks;
                         const zoneTasks = shiftTasks.filter(
                           (t) => resolveTaskZone(t) === overviewTempZoneFilter
                         );
@@ -4909,10 +5065,69 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                         const activeZoneStyle = chamberZoneStyle(overviewTempZoneFilter);
                         return (
                           <>
-                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#0f172a', marginTop: 12, marginBottom: 6 }}>
-                              Task status
-                            </Text>
-                            <TempTaskStatusDonut completed={completed} bad={bad} pending={pending} />
+                            <View style={{ flexDirection: 'row', gap: 6, marginTop: 10, marginBottom: 6 }}>
+                              {['Frozen', 'Chilled', 'Dry', 'Other'].map((z) => {
+                                const active = overviewTempZoneFilter === z;
+                                const zs = chamberZoneStyle(z);
+                                // Badge = morning filled readings (same as graph points)
+                                const count = shiftTasks.filter(
+                                  (t) => resolveTaskZone(t) === z && isFilledMorning(t)
+                                ).length;
+                                return (
+                                  <TouchableOpacity
+                                    key={z}
+                                    onPress={() => {
+                                      setOverviewTempZoneFilter(z);
+                                      setOverviewTempListPage(1);
+                                    }}
+                                    activeOpacity={0.85}
+                                    style={{
+                                      flex: 1,
+                                      paddingVertical: 6,
+                                      paddingHorizontal: 2,
+                                      borderRadius: 8,
+                                      borderWidth: 1,
+                                      borderColor: active ? zs.color : '#e2e8f0',
+                                      backgroundColor: active ? zs.bg : '#ffffff',
+                                      alignItems: 'center',
+                                      justifyContent: 'center'
+                                    }}
+                                  >
+                                    <Text
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: '800',
+                                        color: active ? zs.color : '#64748b',
+                                        textAlign: 'center'
+                                      }}
+                                      numberOfLines={1}
+                                    >
+                                      {z === 'Chilled' ? 'Chiller' : z}
+                                    </Text>
+                                    <Text
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: '800',
+                                        color: active ? zs.color : '#94a3b8',
+                                        marginTop: 1
+                                      }}
+                                    >
+                                      {count}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+
+                            <TempTimeSeriesPlot
+                              points={shiftTasks.filter(isFilledReading)}
+                              selectedZone={overviewTempZoneFilter}
+                              rangePreset={overviewTempRangePreset}
+                              dateFrom={overviewTempDateFrom}
+                              dateTo={overviewTempDateTo}
+                              title="Temperature over time"
+                              emptyLabel="No morning temperature readings for this date range yet."
+                            />
 
                             <View style={{ flexDirection: 'row', gap: 6, marginTop: 14, marginBottom: 10 }}>
                               {[
@@ -4968,63 +5183,8 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                               })}
                             </View>
 
-                            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
-                              {zones.map((z) => {
-                                const active = overviewTempZoneFilter === z;
-                                const zs = chamberZoneStyle(z);
-                                const count = shiftTasks.filter((t) => {
-                                  if (resolveTaskZone(t) !== z) return false;
-                                  if (overviewTempListFilter === 'all') return true;
-                                  return t.status === overviewTempListFilter;
-                                }).length;
-                                return (
-                                  <TouchableOpacity
-                                    key={z}
-                                    onPress={() => {
-                                      setOverviewTempZoneFilter(z);
-                                      setOverviewTempListPage(1);
-                                    }}
-                                    activeOpacity={0.85}
-                                    style={{
-                                      flex: 1,
-                                      paddingVertical: 5,
-                                      paddingHorizontal: 2,
-                                      borderRadius: 8,
-                                      borderWidth: 1,
-                                      borderColor: active ? zs.color : '#e2e8f0',
-                                      backgroundColor: active ? zs.bg : '#ffffff',
-                                      alignItems: 'center',
-                                      justifyContent: 'center'
-                                    }}
-                                  >
-                                    <Text
-                                      style={{
-                                        fontSize: 10,
-                                        fontWeight: '800',
-                                        color: active ? zs.color : '#64748b',
-                                        textAlign: 'center'
-                                      }}
-                                      numberOfLines={1}
-                                    >
-                                      {z === 'Chilled' ? 'Chiller' : z}
-                                    </Text>
-                                    <Text
-                                      style={{
-                                        fontSize: 10,
-                                        fontWeight: '800',
-                                        color: active ? zs.color : '#94a3b8',
-                                        marginTop: 1
-                                      }}
-                                    >
-                                      {count}
-                                    </Text>
-                                  </TouchableOpacity>
-                                );
-                              })}
-                            </View>
-
                             <Text style={{ fontSize: 13, fontWeight: '800', color: '#0f172a', marginBottom: 8 }}>
-                              {activeMeta.label} · {overviewTempShift} ·{' '}
+                              {activeMeta.label} ·{' '}
                               <Text style={{ color: activeZoneStyle.color }}>
                                 {overviewTempZoneFilter === 'Chilled' ? 'Chiller' : overviewTempZoneFilter}
                               </Text>
@@ -5079,10 +5239,6 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                                       entry_date: row.dayKey,
                                       formatted_date: row.dayKey,
                                       warehouse_name: row.warehouse,
-                                      remarks:
-                                        row.status === 'pending'
-                                          ? 'Pending — no temperature reading for this shift yet.'
-                                          : null,
                                       _logType: 'chambers',
                                       _taskStatus: row.status
                                     };
@@ -5933,8 +6089,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: Platform.OS === 'ios' ? 8 : 4,
+    paddingLeft: 10,
+    paddingRight: 4,
+    paddingVertical: Platform.OS === 'ios' ? 6 : 3,
     gap: 6,
   },
   taskSearchInput: {
@@ -5942,7 +6099,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#0f172a',
-    paddingVertical: 0,
+    paddingVertical: Platform.OS === 'ios' ? 6 : 4,
+    minHeight: 32,
+  },
+  taskSearchClearBtn: {
+    padding: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  taskSearchActionBtn: {
+    width: 34,
+    height: 30,
+    borderRadius: 7,
+    backgroundColor: '#003580',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   inoutDateRow: {
     flexDirection: 'row',
