@@ -6,7 +6,9 @@ import FastTouchable from './FastTouchable';
 const TouchableOpacity = FastTouchable;
 
 /**
- * Consistent inline error + optional retry (lists / overview panels).
+ * WHAT: Centered error message with optional Retry button for failed fetches.
+ * WHY: Customer/Sub-Admin lists should recover without leaving the screen.
+ * HOW: Shows icon + message; calls onRetry when the user taps Retry.
  */
 export default function InlineErrorState({
   message,

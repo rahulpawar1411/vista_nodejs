@@ -1,3 +1,9 @@
+/**
+ * Form draft storage (src/utils/formDraftStorage.js).
+ * WHAT: Saves half-finished inward/outward forms and copies photos to app storage.
+ * WHY: Camera temp files disappear — drafts must survive app restarts.
+ * HOW: AsyncStorage JSON + copyAsync into documentDirectory/form_draft_photos/.
+ */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { normalizeLocalFileUri } from './formDataAppendFile';
@@ -54,6 +60,11 @@ export async function stabilizePhotoForDraft(photo, fieldKey, index = 0) {
   }
 }
 
+/**
+ * WHAT: Copies every photo object in a photos map to stable draft storage.
+ * WHY: Multi-photo inward steps share one stabilize helper.
+ * HOW: Loop keys; handle arrays (invoice photos) and single-uri fields.
+ */
 export async function stabilizePhotosForDraft(photos = {}) {
   if (!photos || typeof photos !== 'object') return photos;
   const next = { ...photos };
@@ -73,6 +84,7 @@ export async function stabilizePhotosForDraft(photos = {}) {
   return next;
 }
 
+/** WHAT: Drops photo entries whose files were deleted. WHY: Avoid broken thumbnails on load. HOW: uriExists check per item. */
 export async function pruneMissingDraftPhotos(photos = {}) {
   if (!photos || typeof photos !== 'object') return photos;
   const next = { ...photos };
@@ -92,6 +104,7 @@ export async function pruneMissingDraftPhotos(photos = {}) {
   return next;
 }
 
+/** WHAT: Persists draft form + stabilized photos under a storage key. WHY: Resume wizard later. HOW: AsyncStorage.setItem JSON. */
 export async function saveFormDraft(key, payload) {
   if (!key || !payload) return;
   const photos = await stabilizePhotosForDraft(payload.photos);
@@ -105,6 +118,7 @@ export async function saveFormDraft(key, payload) {
   );
 }
 
+/** WHAT: Loads and cleans a saved draft. WHY: Restore fields on screen mount. HOW: getItem + pruneMissingDraftPhotos. */
 export async function loadFormDraft(key) {
   const raw = await AsyncStorage.getItem(key);
   if (!raw) return null;
@@ -116,6 +130,7 @@ export async function loadFormDraft(key) {
   return draft;
 }
 
+/** WHAT: Deletes a draft from AsyncStorage. WHY: After successful submit. HOW: removeItem. */
 export async function clearFormDraft(key) {
   await AsyncStorage.removeItem(key);
 }

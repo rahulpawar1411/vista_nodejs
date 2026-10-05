@@ -1,3 +1,9 @@
+/**
+ * Metro bundler config (metro.config.js).
+ * WHAT: Customizes how Metro resolves JavaScript modules when you run the app.
+ * WHY: expo-notifications pulls in native modules that crash on Android Expo Go — we swap in safe shims.
+ * HOW: When a file inside expo-notifications imports certain modules, resolveRequest returns our shim paths.
+ */
 const path = require('path');
 const { getDefaultConfig } = require('expo/metro-config');
 
@@ -17,10 +23,12 @@ const shims = {
 
 const defaultResolveRequest = config.resolver.resolveRequest;
 
+/** Strip query strings and backslashes so module paths compare reliably on Windows. */
 function normalize(moduleName) {
   return moduleName.split('?')[0].replace(/\\/g, '/');
 }
 
+/** True when an import path refers to a given expo-notifications internal module name. */
 function endsWithModule(base, name) {
   return (
     base === `./${name}` ||

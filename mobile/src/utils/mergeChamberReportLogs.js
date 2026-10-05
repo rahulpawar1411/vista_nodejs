@@ -1,6 +1,11 @@
 /**
- * Normalize a server chamber-temp row for DO report views.
+ * Chamber report merge (src/utils/mergeChamberReportLogs.js).
+ * WHAT: Combines server history with local SQLite temp logs for one report list.
+ * WHY: Pending offline logs must appear and override stale server copies.
+ * HOW: normalizeServerChamberLog + Map keyed by day/chamber/client/shift.
  */
+
+/** WHAT: Parse many date shapes to YYYY-MM-DD. WHY: Sort and filter reports by day. HOW: Date parse or string slice. */
 function toLocalYmd(value) {
   if (value == null || value === '') return '';
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -21,6 +26,11 @@ function toLocalYmd(value) {
   return s.slice(0, 10);
 }
 
+/**
+ * WHAT: Maps API chamber log fields to the shape Dashboard reports expect.
+ * WHY: Server column names differ from local SQLite rows.
+ * HOW: Spread with renamed temp/image fields and _source: 'server'.
+ */
 export function normalizeServerChamberLog(row) {
   if (!row) return null;
   const formatted = String(row.formatted_date || '').trim().slice(0, 10);
@@ -71,7 +81,9 @@ function logMergeKey(log) {
 }
 
 /**
- * Merge server history with local SQLite queue (pending wins over stale server copy).
+ * WHAT: Single merged array for report FlatLists.
+ * WHY: DO sees both uploaded history and not-yet-synced entries.
+ * HOW: Map by logMergeKey; local pending always wins over server row for same key.
  */
 export function mergeChamberReportLogs(serverLogs = [], localLogs = []) {
   const map = new Map();

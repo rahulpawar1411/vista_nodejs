@@ -5,6 +5,11 @@
  */
 import * as FileSystem from 'expo-file-system/legacy';
 
+/**
+ * WHAT: Ensures a photo path is a valid React Native file/content URI.
+ * WHY: Camera and cache paths arrive in mixed formats before FormData upload.
+ * HOW: Prefix file:// when given a bare absolute path.
+ */
 export function normalizeLocalFileUri(uri) {
   const path = String(uri || '').trim();
   if (!path) return '';
@@ -20,6 +25,7 @@ export function normalizeLocalFileUri(uri) {
   return path;
 }
 
+/** WHAT: Checks if a local URI still points at a file on disk. WHY: Preflight before sync. HOW: FileSystem.getInfoAsync. */
 export async function localFileExists(uri) {
   const path = normalizeLocalFileUri(uri);
   if (!path) return false;
@@ -32,7 +38,9 @@ export async function localFileExists(uri) {
 }
 
 /**
- * Append a local image for XHR multipart (RN FormData uri part).
+ * WHAT: Adds one image file to FormData for multipart upload.
+ * WHY: React Native expects { uri, name, type } objects, not Blob.
+ * HOW: normalizeLocalFileUri then formData.append with JPEG defaults.
  */
 export function appendLocalFile(formData, fieldName, uri, opts = {}) {
   if (!formData || !fieldName) return;
@@ -44,8 +52,9 @@ export function appendLocalFile(formData, fieldName, uri, opts = {}) {
 }
 
 /**
- * fetch()-like wrapper using XMLHttpRequest so `{ uri }` FormData works on Expo Go.
- * @returns {Promise<{ ok: boolean, status: number, json: () => Promise<any>, text: () => Promise<string> }>}
+ * WHAT: HTTP client that uploads FormData with local file URIs on Expo.
+ * WHY: fetch() in newer Expo builds rejects RN-style multipart parts.
+ * HOW: XMLHttpRequest with same ok/status/json/text shape as fetch Response.
  */
 export function multipartRequest(url, { method = 'POST', headers = {}, body, timeoutMs = 120000 } = {}) {
   return new Promise((resolve, reject) => {

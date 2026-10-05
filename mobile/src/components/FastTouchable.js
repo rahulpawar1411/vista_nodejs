@@ -1,7 +1,7 @@
 /**
- * FastTouchable — snappy taps for mobile buttons.
- * - No press delay (delayPressIn=0)
- * - Clear press feedback (opacity)
+ * WHAT: Drop-in button wrapper with instant press feedback.
+ * WHY: Default TouchableOpacity can feel sluggish on long DO shift screens.
+ * HOW: Pressable with unstable_pressDelay=0 and opacity change while pressed.
  */
 import React from 'react';
 import { Pressable } from 'react-native';

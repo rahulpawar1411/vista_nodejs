@@ -1,12 +1,10 @@
 // ====================================================================
-// DO (Data Operator) — mobile/src/screens/DashboardScreen.js
+// DashboardScreen.js — Data Operator (do_operator) main screen
 // --------------------------------------------------------------------
-// Field app for role `do_operator`.
-// Daily work comes from chamber_client_assignments for THIS DO warehouse
-// (not the global catalog). Offline: SQLite queue → syncEngine.
-// Chamber / client master edits: request permission; after approve/deny
-// a popup (and push) shows — deny includes Admin remark.
-// Errors: prefer user-safe Alerts; network/sync failures stay in the queue.
+// WHAT: Field app for daily temp tasks, dock forms, reports, and chamber master edits.
+// WHY: DO work is warehouse-scoped, often offline, and must sync to the same backend as web.
+// HOW: Bottom tabs + SQLite queue + syncEngine; master edits go through permission requests.
+// Major areas: navigation state, assignments/tasks, inward/outward reports, sync, chamber editor.
 // ====================================================================
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -55,7 +53,7 @@ const DOCK_REPORT_PAGE_SIZE = 15;
 const PENDING_CHAMBER_TYPE_KEY = 'pending_chamber_type_updates';
 const PENDING_CLIENT_MASTER_KEY = 'pending_client_master_ops';
 
-/** Local calendar date YYYY-MM-DD (not UTC). */
+/** WHAT: Today’s date on the device calendar as YYYY-MM-DD. WHY: Task filters use local day, not UTC. */
 function getLocalDateStr(d = new Date()) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -154,6 +152,7 @@ function resolveDoImageUrl(raw, baseUrl, folderHint = 'daily_temp_monitor_images
   return resolveLogImageUrl(raw, baseUrl, folderHint);
 }
 
+/** WHAT: Thumbnail + fallback chain for one chamber sensor photo in log detail. WHY: CDN vs API URL retries. */
 function DoSensorPhotoView({ rawPath, apiUrl, folderHint = 'daily_temp_monitor_images' }) {
   const candidates = useMemo(() => {
     const list = [
@@ -344,11 +343,14 @@ function LazyNavTabPanel({ isActive, isMounted, paintReady, dataLoading, loading
 }
 
 /**
- * DO field screen — warehouse assignments drive tasks; offline SQLite + sync.
- * Master edits go through permission requests (not direct catalog writes).
+ * WHAT: Root DO screen component — renders tabs, modals, and data hooks for one warehouse.
+ * WHY: All operator workflows live in one place with shared sync and assignment state.
+ * HOW: Large useState groups below; fetch on focus; subscribeToSync on mount.
  */
 export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserUpdate }) {
   const displayName = user.full_name || user.email || 'Data Operator';
+
+  // Profile / More menu (chamber limit, client counts)
   const [chamberLimitOverride, setChamberLimitOverride] = useState(null);
   const [moreProfileOpen, setMoreProfileOpen] = useState(false);
   const [profileClientsTotal, setProfileClientsTotal] = useState(null);
@@ -762,6 +764,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
   };
 
   // Navigation Tab State: 'Dashboard' | 'Inwards' | 'InwardReports' | 'Outwards' | 'OutwardReports' | 'Profile' | 'Tasks' | 'Reports' | 'More'
+  // Bottom tab navigation (Dashboard, Tasks, Reports, …) and lazy-mounted panels
   const [currentNavTab, setCurrentNavTab] = useState('Dashboard');
   // Section mode switches bottom tabs: daily (Tasks) vs inwards vs outwards
   const [navSection, setNavSection] = useState('daily'); // 'daily' | 'inwards' | 'outwards'

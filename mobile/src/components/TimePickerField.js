@@ -1,3 +1,9 @@
+/**
+ * TimePickerField — scroll wheel time picker for HH:mm fields.
+ * WHAT: Opens a compact popup to pick hour and minute in 24-hour format.
+ * WHY: Dock forms need consistent time entry on iOS and Android.
+ * HOW: value/onChange as "HH:mm" strings; parses optional date prefix in stored values.
+ */
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
@@ -99,6 +105,7 @@ function MiniSelect({ value, options, onChange, open, onOpen, label }) {
   );
 }
 
+/** WHAT: Controlled time field + hour/minute popup. WHY/HOW: See file header. */
 export default function TimePickerField({
   label,
   value,

@@ -1,7 +1,7 @@
 /**
- * Remove black BG (edge flood-fill) + crop transparent margins.
- * Writes assets/logo-transparent.png
- * Run: node scripts/removeLogoBg.js
+ * WHAT: Dev script — removes black background and crops transparent logo PNG.
+ * WHY: Icons and splash look better on non-black backgrounds.
+ * HOW: Run: node scripts/removeLogoBg.js → assets/logo-transparent.png
  */
 const path = require('path');
 const fs = require('fs');

@@ -1,5 +1,7 @@
 /**
- * Turn raw fetch/JS errors into short messages users can act on.
+ * WHAT: Converts technical errors into short messages for alerts and banners.
+ * WHY: Users cannot fix "Network request failed" without a plain-language hint.
+ * HOW: Pattern-match common fetch/auth/timeout strings and optionally prefix with context.
  */
 export function formatUserError(err, { apiUrl, context } = {}) {
   const raw = String(err?.message || err || '').trim();

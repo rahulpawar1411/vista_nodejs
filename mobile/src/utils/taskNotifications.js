@@ -1,8 +1,8 @@
 /**
- * Morning / Evening local reminders.
- * - If Morning tasks already completed today → do NOT notify morning (schedule tomorrow only)
- * - If Evening tasks already completed today → do NOT notify evening (schedule tomorrow only)
- * Bodies include total client temperature-task counts; evening also flags morning still due.
+ * DO task reminders (src/utils/taskNotifications.js).
+ * WHAT: Schedules local morning/evening notifications for temperature tasks.
+ * WHY: Operators should not miss shift checks when the app is in the background.
+ * HOW: cancelAll + scheduleAt fixed IDs when refreshTaskReminders runs from Dashboard.
  */
 import * as Notifications from 'expo-notifications';
 import { ensureNotificationPermission } from './permissions';
@@ -81,6 +81,11 @@ async function scheduleAt(identifier, content, when) {
  *   eveningClientCount?: number,
  *   morningPendingCount?: number
  * }} opts
+ */
+/**
+ * WHAT: Rebuilds morning/evening notification schedule from current task completion counts.
+ * WHY: Skip alerts when that shift is already done; reschedule for tomorrow.
+ * HOW: ensureNotificationPermission then scheduleAt with computed body text.
  */
 export async function refreshTaskReminders({
   morningCompleted = false,

@@ -13,12 +13,13 @@ import {
 const VISTA_WORDS = ['Visibility', 'Inspection', 'Stock', 'Trust', 'Audit'];
 const SLIDE_FROM = -56;
 
-/** Approximate full intro length (ms) — App can use as fallback wait. */
+/** WHAT: Length of splash animation in ms. WHY: App.js waits for intro + session restore. */
 export const SPLASH_ANIMATION_MS = 3200;
 
 /**
- * First-open splash: logo → VISTA → full-form words (L→R) → small spinner under the line.
- * Set playIntro={false} for a static loading frame (e.g. DO data load).
+ * WHAT: Branded loading screen with logo animation and optional “Loading session…”.
+ * WHY: Hides AsyncStorage session restore and gives a polished first impression.
+ * HOW: Animated.sequence for logo/VISTA words; onAnimationComplete when finished.
  */
 export default function SplashScreen({
   onAnimationComplete,

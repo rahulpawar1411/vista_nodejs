@@ -1,3 +1,9 @@
+/**
+ * TempTimeSeriesPlot — scrollable temperature chart for Customer reports.
+ * WHAT: Line chart of chamber readings over days with compliance band shading.
+ * WHY: Customers visualize cold-chain performance without exporting spreadsheets.
+ * HOW: Maps points to canvas coordinates; tap dots for Morning/Evening detail tooltips.
+ */
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -128,8 +134,9 @@ function avgTemps(list) {
 }
 
 /**
- * °C time-series — fixed −30…+30°C scale.
- * Morning line on chart; tap a dot for full date + M/E temps.
+ * WHAT: Renders the chart given filtered temperature points and zone preset.
+ * WHY: CustomerScreen passes server log rows after date/zone filters.
+ * HOW: Computes plot width from point count; horizontal ScrollView for long ranges.
  */
 export default function TempTimeSeriesPlot({
   points = [],

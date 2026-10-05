@@ -26,8 +26,9 @@ try {
 }
 
 /**
- * Create tables if needed + additive migrations.
- * Safe to call on every app start.
+ * WHAT: Creates SQLite tables and adds any missing columns on the phone.
+ * WHY: Offline DO work needs local storage before sync uploads to the server.
+ * HOW: Runs CREATE TABLE IF NOT EXISTS and ALTER TABLE ADD COLUMN via ensureColumn helpers.
  */
 export const initDatabase = () => {
   if (!db) return;
@@ -1287,6 +1288,11 @@ export const deleteLocalAssignment = (chamberId, clientName, remark) => {
   }
 };
 
+/**
+ * WHAT: Lists chamber–client rows waiting to upload to the server.
+ * WHY: DO master edits queue locally until syncEngine POSTs them.
+ * HOW: SELECT where sync_status is pending for the given warehouse.
+ */
 export const getPendingAssignments = (warehouseName) => {
   if (!db) return [];
   try {
@@ -1331,6 +1337,11 @@ export const markAssignmentSynced = (chamberId, clientName, action) => {
 // Inward / Outward offline queue
 // ------------------------------------------------------------------
 
+/**
+ * WHAT: Stores a completed inward dock form on the phone before upload.
+ * WHY: DO may submit while offline; syncEngine sends it when network returns.
+ * HOW: JSON-serialize form + photo URIs into local_inward_logs with sync_status pending.
+ */
 export const saveInwardLocally = ({
   form,
   photos,
@@ -1367,6 +1378,11 @@ export const saveInwardLocally = ({
   }
 };
 
+/**
+ * WHAT: Stores a completed outward dock form locally in the upload queue.
+ * WHY: Same offline-first pattern as inward and temperature logs.
+ * HOW: INSERT into local_outward_logs with pending sync_status.
+ */
 export const saveOutwardLocally = ({
   form,
   photos,
@@ -1403,6 +1419,11 @@ export const saveOutwardLocally = ({
   }
 };
 
+/**
+ * WHAT: Returns inward rows still waiting for server upload.
+ * WHY: syncEngine loops this list and builds multipart POST bodies.
+ * HOW: SELECT pending/syncing rows; optionally filter by operator email.
+ */
 export const getPendingInwardLogs = (operatorEmail = null) => {
   if (!db) return [];
   const staleBefore = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -1428,6 +1449,11 @@ export const getPendingInwardLogs = (operatorEmail = null) => {
   }
 };
 
+/**
+ * WHAT: Returns outward rows still waiting for server upload.
+ * WHY: Paired with getPendingInwardLogs in the sync pipeline.
+ * HOW: Same pending/syncing query against local_outward_logs.
+ */
 export const getPendingOutwardLogs = (operatorEmail = null) => {
   if (!db) return [];
   const staleBefore = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -1453,6 +1479,11 @@ export const getPendingOutwardLogs = (operatorEmail = null) => {
   }
 };
 
+/**
+ * WHAT: Recent inward/outward uploads that failed and still need retry.
+ * WHY: Dashboard can show a short error list to the DO.
+ * HOW: SELECT rows with sync_error set while still pending.
+ */
 export const getPendingSyncFailures = (operatorEmail = null) => {
   if (!db) return [];
   try {
@@ -1479,6 +1510,7 @@ export const getPendingSyncFailures = (operatorEmail = null) => {
   }
 };
 
+/** WHAT: Marks one inward row as uploading. WHY: Avoid double POST. HOW: sync_status = syncing. */
 export const markInwardSyncing = (id) => {
   if (!db || !id) return;
   try {
@@ -1491,6 +1523,7 @@ export const markInwardSyncing = (id) => {
   }
 };
 
+/** WHAT: Marks one outward row as uploading. WHY: Avoid double POST. HOW: sync_status = syncing. */
 export const markOutwardSyncing = (id) => {
   if (!db || !id) return;
   try {
@@ -1503,6 +1536,11 @@ export const markOutwardSyncing = (id) => {
   }
 };
 
+/**
+ * WHAT: Marks inward upload complete after server OK response.
+ * WHY: Remove from queue and store server reference for UI.
+ * HOW: sync_status synced + reference_no + server_log_id.
+ */
 export const markInwardAsSynced = (id, referenceNo, serverLogId = null) => {
   if (!db || !id) return;
   try {
@@ -1515,6 +1553,11 @@ export const markInwardAsSynced = (id, referenceNo, serverLogId = null) => {
   }
 };
 
+/**
+ * WHAT: Marks outward upload complete after server OK response.
+ * WHY: Same as markInwardAsSynced for the outward table.
+ * HOW: UPDATE local_outward_logs sync fields.
+ */
 export const markOutwardAsSynced = (id, referenceNo, serverLogId = null) => {
   if (!db || !id) return;
   try {
@@ -1527,6 +1570,7 @@ export const markOutwardAsSynced = (id, referenceNo, serverLogId = null) => {
   }
 };
 
+/** WHAT: Saves inward upload failure message. WHY: Retry later with visible error. HOW: pending + sync_error column. */
 export const markInwardSyncError = (id, message) => {
   if (!db || !id) return;
   try {
@@ -1539,6 +1583,7 @@ export const markInwardSyncError = (id, message) => {
   }
 };
 
+/** WHAT: Saves outward upload failure message. WHY: Retry later with visible error. HOW: pending + sync_error column. */
 export const markOutwardSyncError = (id, message) => {
   if (!db || !id) return;
   try {
@@ -1551,6 +1596,11 @@ export const markOutwardSyncError = (id, message) => {
   }
 };
 
+/**
+ * WHAT: Records a DO activity or permission-related event for server audit sync.
+ * WHY: Super Admin needs a trail when edits require approval.
+ * HOW: INSERT into local_activity_queue with pending sync_status.
+ */
 export const queueLocalActivity = ({ action, logType, description, remark, permissionReq } = {}) => {
   if (!db) return null;
   const act = String(action || '').trim();
@@ -1575,6 +1625,7 @@ export const queueLocalActivity = ({ action, logType, description, remark, permi
   }
 };
 
+/** WHAT: Lists activity rows not yet posted. WHY: syncEngine uploads audit trail. HOW: SELECT pending from queue table. */
 export const getPendingActivities = () => {
   if (!db) return [];
   try {
@@ -1585,6 +1636,7 @@ export const getPendingActivities = () => {
   }
 };
 
+/** WHAT: Removes an activity row after successful upload. WHY: Keep queue small. HOW: DELETE by id. */
 export const markActivitySynced = (id) => {
   if (!db || id == null) return;
   try {
@@ -1594,6 +1646,11 @@ export const markActivitySynced = (id) => {
   }
 };
 
+/**
+ * WHAT: Total count of all offline items waiting to sync.
+ * WHY: Badge on sync button / status bar for the DO.
+ * HOW: Sum lengths of assignment, inspection, inward, outward, and activity pending lists.
+ */
 export const countPendingSyncItems = (warehouseName, operatorName, operatorEmail) => {
   return (
     getPendingAssignments(warehouseName).length +

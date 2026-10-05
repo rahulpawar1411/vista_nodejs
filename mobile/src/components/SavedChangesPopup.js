@@ -6,7 +6,9 @@ import FastTouchable from './FastTouchable';
 const TouchableOpacity = FastTouchable;
 
 /**
- * Success popup after Sub-Admin / DO updates — “Changes saved” + Done.
+ * WHAT: Modal confirmation that an edit was saved successfully.
+ * WHY: Gives clear feedback after master or assignment changes.
+ * HOW: Transparent Modal with check icon and Done button calling onDone.
  */
 export default function SavedChangesPopup({
   visible,

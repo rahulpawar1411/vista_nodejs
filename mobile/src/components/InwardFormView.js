@@ -1,3 +1,9 @@
+/**
+ * InwardFormView — multi-step inward (receiving) dock form for DO.
+ * WHAT: Wizard UI to capture inward truck unload data, photos, and submit or queue offline.
+ * WHY: Inward logs are large; steps + drafts reduce errors and support syncEngine upload.
+ * HOW: Seven steps, inwardValidation, saveInwardLocally or multipart POST when online.
+ */
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
@@ -167,6 +173,11 @@ function waitForSubmitUiPaint() {
   });
 }
 
+/**
+ * WHAT: Renders the full inward form wizard and handles submit/draft/sync.
+ * WHY: Dashboard embeds this view inside inward navigation section.
+ * HOW: Local state for form, photos, step index; props supply API and callbacks.
+ */
 export default function InwardFormView({
   apiUrl,
   token,

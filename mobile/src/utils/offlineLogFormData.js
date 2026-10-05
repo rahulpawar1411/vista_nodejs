@@ -1,7 +1,14 @@
+/**
+ * Offline dock upload builders (src/utils/offlineLogFormData.js).
+ * WHAT: Turns queued SQLite inward/outward rows into multipart FormData for syncEngine.
+ * WHY: syncEngine should not duplicate field lists and photo attachment logic.
+ * HOW: JSON.parse form/photos, append fields, appendLocalFile for each image URI.
+ */
 import { convertYYYYMMDDToDDMMYYYY } from './inwardValidation';
 import { buildPhotoMetadataPayload } from './photoCaptureMeta';
 import { appendLocalFile, localFileExists } from './formDataAppendFile';
 
+/** WHAT: Inward form photo keys for sync and metadata. WHY: Single list for append + validation. */
 export const INWARD_PHOTO_FIELDS = [
   { key: 'inward_invoice_photos', multi: true },
   { key: 'inward_pod_photo', multi: false },
@@ -14,6 +21,7 @@ export const INWARD_PHOTO_FIELDS = [
   { key: 'inward_damage_boxes_photo', multi: true },
 ];
 
+/** WHAT: Outward form photo keys for sync and metadata. WHY: Mirror inward field list. */
 export const OUTWARD_PHOTO_FIELDS = [
   { key: 'outward_invoice_photos', multi: true },
   { key: 'outward_pre_vehicle_temp_photo', multi: false },
@@ -51,7 +59,11 @@ function extractClockTime(value) {
   return raw.includes(' ') ? raw.split(' ').pop() : raw;
 }
 
-/** Collect photo URIs that are missing from device storage. */
+/**
+ * WHAT: Finds photo URIs in a map that no longer exist on disk.
+ * WHY: Sync must fail early instead of uploading empty parts.
+ * HOW: localFileExists on each uri in arrays or single photo objects.
+ */
 export async function collectMissingPhotoUris(photos = {}) {
   const missing = [];
   if (!photos || typeof photos !== 'object') return missing;
@@ -86,6 +98,11 @@ export async function assertQueuePhotosExist(record) {
   }
 }
 
+/**
+ * WHAT: Builds FormData for POST /api/inward from a local_inward_logs row.
+ * WHY: syncEngine calls this inside the upload loop.
+ * HOW: Flatten form keys, format dates, append photos and metadata JSON.
+ */
 export function buildInwardFormData(record) {
   const form = JSON.parse(record.form_json || '{}');
   const photos = JSON.parse(record.photos_json || '{}');
@@ -148,6 +165,7 @@ export function buildInwardFormData(record) {
   return formData;
 }
 
+/** WHAT: FormData for POST outward from local_outward_logs. WHY/HOW: Same pattern as buildInwardFormData. */
 export function buildOutwardFormData(record) {
   const form = JSON.parse(record.form_json || '{}');
   const photos = JSON.parse(record.photos_json || '{}');
@@ -215,6 +233,7 @@ export function buildOutwardFormData(record) {
   return formData;
 }
 
+/** WHAT: Short label for sync UI for one inward queue row. HOW: Parse vehicle + client from form_json. */
 export function describeInwardQueueItem(record) {
   try {
     const form = JSON.parse(record.form_json || '{}');
@@ -226,6 +245,7 @@ export function describeInwardQueueItem(record) {
   }
 }
 
+/** WHAT: Short label for sync UI for one outward queue row. HOW: Parse vehicle + client from form_json. */
 export function describeOutwardQueueItem(record) {
   try {
     const form = JSON.parse(record.form_json || '{}');

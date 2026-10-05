@@ -1,4 +1,9 @@
-// Client-side inward validation — mirrors backend/web rules
+/**
+ * Inward dock form validation (src/utils/inwardValidation.js).
+ * WHAT: Sanitizes field input and checks required steps before submit.
+ * WHY: Catch mistakes on the phone before offline queue or server reject.
+ * HOW: sanitize* functions clean typing; validateInwardForm/Step mirror backend rules.
+ */
 
 const REQUIRED_FIELDS = [
   ['inward_entry_date', 'Entry Date'],
@@ -79,7 +84,9 @@ function getExpectedPhoneDigits(countryCode) {
   return 10;
 }
 
-/** Vehicle no — uppercase + auto hyphens (e.g. MH-12-QW-1234), max 10 alnum. */
+// --- Field sanitizers (clean user typing as they type) ---
+
+/** WHAT: Formats Indian vehicle number with hyphens. WHY: Consistent display and validation. HOW: Strip non-alnum, uppercase, insert hyphens. */
 export function formatVehicleNumber(value) {
   const raw = String(value ?? '')
     .replace(/[^a-zA-Z0-9]/g, '')
@@ -197,6 +204,13 @@ function hasPhotoValue(val, multi) {
   return !!val;
 }
 
+// --- Full-form and step validation ---
+
+/**
+ * WHAT: Checks all required inward fields, photos, phone, and unloading time order.
+ * WHY: Block submit before queue/sync when business rules fail.
+ * HOW: Returns { ok, missing, missingKeys, message } for the form UI.
+ */
 export function validateInwardForm(form, photos, driverCountryCode = '+91') {
   const missing = [];
   const missingKeys = [];
@@ -274,6 +288,9 @@ export function validateInwardForm(form, photos, driverCountryCode = '+91') {
   return { ok: true, missing: [], missingKeys: [] };
 }
 
+// --- Multi-step wizard (7 steps) ---
+
+/** WHAT: Number of inward wizard steps shown in the mobile UI. */
 export const INWARD_STEP_COUNT = 7;
 
 const STEP_REQUIRED_FIELDS = {

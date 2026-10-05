@@ -1,5 +1,8 @@
 /**
- * Photo capture timestamp + GPS helpers for DO camera flows.
+ * Photo capture metadata (src/utils/photoCaptureMeta.js).
+ * WHAT: Attach GPS coordinates and timestamps to verification photos.
+ * WHY: Audit trail requires when/where each sensor photo was taken.
+ * HOW: readCaptureLocation after camera closes; serialize into API payload fields.
  */
 import { Platform } from 'react-native';
 import * as Location from 'expo-location';
@@ -8,6 +11,7 @@ import {
   ensureLocationServicesEnabled,
 } from './permissions';
 
+/** WHAT: Formats a timestamp as YYYY-MM-DD HH:mm:ss for server fields. WHY: Consistent audit time string. */
 export function formatCaptureDateTime(timestamp = Date.now()) {
   const dateObj = new Date(timestamp);
   if (Number.isNaN(dateObj.getTime())) return '';
@@ -89,7 +93,9 @@ function watchForPosition(timeoutMs = 12000) {
 }
 
 /**
- * Read GPS — last-known → Lowest → Low → Balanced → short watch.
+ * WHAT: Best-effort GPS fix after photo capture (multiple accuracy strategies).
+ * WHY: Audit requires coordinates when permission and GPS are available.
+ * HOW: lastKnown → getCurrentPosition at stepped accuracy → short watchPosition fallback.
  */
 export async function readCaptureLocation() {
   try {
@@ -152,10 +158,9 @@ export async function readCaptureLocation() {
 }
 
 /**
- * Lightweight GPS while the system camera is open.
- * Avoid full getCurrentPosition / watch here — concurrent GPS + full-res camera
- * often kills the Android process (app appears to "close").
- * Full accuracy fixup still runs in buildPhotoCaptureMeta after return.
+ * WHAT: Starts a lightweight location read (returns a Promise) before/during camera.
+ * WHY: Heavy GPS + camera together can crash Android — we only use last-known here.
+ * HOW: Returns promise resolved in buildPhotoCaptureMeta with full readCaptureLocation retry.
  */
 export function beginPhotoLocationCapture() {
   return (async () => {
@@ -184,7 +189,11 @@ export function beginPhotoLocationCapture() {
   })();
 }
 
-/** Build metadata after photo capture; pass promise from beginPhotoLocationCapture(). */
+/**
+ * WHAT: Builds { capturedAt, capturedAtStr, latitude, longitude, accuracy } for one shot.
+ * WHY: Attached to form photos and sent as photo_capture_metadata on upload.
+ * HOW: Waits optional locationPromise, then readCaptureLocation if coords missing.
+ */
 export async function buildPhotoCaptureMeta(locationPromise = null) {
   const capturedAt = Date.now();
   let location = null;
@@ -215,6 +224,7 @@ export async function buildPhotoCaptureMeta(locationPromise = null) {
   };
 }
 
+/** WHAT: One photo object → JSON-safe meta entry for API. WHY: Multipart metadata field. */
 export function serializePhotoMetaEntry(item) {
   if (!item) return null;
   const capturedAt =
@@ -234,6 +244,7 @@ export function serializePhotoMetaEntry(item) {
   return entry;
 }
 
+/** WHAT: Map of all form photo fields to serialized metadata object. WHY: Single JSON append on submit. */
 export function buildPhotoMetadataPayload(photos, fieldDefs) {
   const meta = {};
   for (const { key, multi } of fieldDefs) {

@@ -1,7 +1,8 @@
 /**
- * Shared Inward/Outward camera capture.
- * Keep camera launch light (no GPS during open). GPS + compress run after return.
- * Android process death: recover via getPendingResultAsync + pending marker.
+ * Verification camera flow (src/utils/captureVerificationPhoto.js).
+ * WHAT: Opens camera, compresses image, attaches GPS, and stabilizes URI for drafts/sync.
+ * WHY: Inward/outward and temp logs share one safe Android-friendly capture path.
+ * HOW: Pending AsyncStorage marker + getPendingResultAsync if the app was killed mid-capture.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
@@ -22,6 +23,7 @@ function mediaTypeImages() {
   return ['images'];
 }
 
+/** WHAT: Marks which form field is waiting for a camera result. WHY: Recover after Android kills the app. HOW: AsyncStorage JSON. */
 export async function savePendingCameraCapture({ formType, fieldKey, multi }) {
   try {
     await AsyncStorage.setItem(
@@ -38,6 +40,7 @@ export async function savePendingCameraCapture({ formType, fieldKey, multi }) {
   }
 }
 
+/** WHAT: Clears pending camera marker. WHY: After success, cancel, or error. */
 export async function clearPendingCameraCapture() {
   try {
     await AsyncStorage.removeItem(PENDING_KEY);
@@ -46,6 +49,7 @@ export async function clearPendingCameraCapture() {
   }
 }
 
+/** WHAT: Reads pending field metadata if still fresh (< 30 min). WHY: Resume interrupted capture. */
 export async function loadPendingCameraCapture() {
   try {
     const raw = await AsyncStorage.getItem(PENDING_KEY);
@@ -62,6 +66,7 @@ export async function loadPendingCameraCapture() {
   }
 }
 
+/** WHAT: Asks ImagePicker for a photo saved while the app was dead. WHY: Android process death recovery. */
 export async function getPendingCameraResult() {
   try {
     if (typeof ImagePicker.getPendingResultAsync !== 'function') return null;
@@ -72,6 +77,7 @@ export async function getPendingCameraResult() {
   }
 }
 
+/** WHAT: Opens the system camera for one JPEG. WHY: Shared options (quality, no crop). HOW: launchCameraAsync. */
 export async function launchVerificationCamera() {
   const options = {
     mediaTypes: mediaTypeImages(),
@@ -143,8 +149,9 @@ export async function finalizeCapturedPhotoAsset({
 }
 
 /**
- * Full capture flow for Inward/Outward.
- * @returns {Promise<{ asset: object, fieldKey: string, multi: boolean } | null>}
+ * WHAT: End-to-end open camera → compress → GPS → stable URI for one form photo field.
+ * WHY: Single entry point used by InwardFormView and OutwardFormView.
+ * HOW: Permission, pending marker, launchVerificationCamera, finalizeCapturedPhotoAsset.
  */
 export async function captureVerificationPhoto({
   formType,
@@ -187,7 +194,9 @@ export async function captureVerificationPhoto({
 }
 
 /**
- * After Android process death: recover photo from ImagePicker + pending field marker.
+ * WHAT: Restores a photo into the form after the OS killed the app mid-capture.
+ * WHY: Without this, users lose the shot and must retake.
+ * HOW: loadPendingCameraCapture + getPendingCameraResult + finalizeCapturedPhotoAsset.
  */
 export async function recoverPendingVerificationPhoto(formType, photos = {}) {
   const pending = await loadPendingCameraCapture();

@@ -63,7 +63,9 @@ export default function LoginScreen({
   const isTablet = width > 600;
 
   /**
-   * Helper function to perform the actual HTTP login request to backend
+   * WHAT: POST credentials to /api/auth/login and route allowed mobile roles.
+   * WHY: Only do_operator, customer, and sub_admin may use this app.
+   * HOW: fetch JSON body; on success call onLoginSuccess with user + token.
    */
   const performLogin = async (loginEmail, loginPassword) => {
     if (loading) return;

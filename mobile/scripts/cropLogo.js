@@ -1,6 +1,7 @@
 /**
- * Crops black padding from mobile/assets/logo.png → logo-cropped.png
- * Run from mobile folder: node scripts/cropLogo.js
+ * WHAT: Dev script — crops empty/black margins from assets/logo.png.
+ * WHY: Splash and marketing assets look tighter without manual editing.
+ * HOW: Run from mobile folder: node scripts/cropLogo.js (uses jimp).
  */
 const fs = require('fs');
 const path = require('path');

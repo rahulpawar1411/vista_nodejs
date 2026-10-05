@@ -1,14 +1,15 @@
 /**
- * Build report reading rows with correct In / Out / Qty.
- * Example: prev 65 → next 60 ⇒ Out 5, Qty 60 (stock left).
- *
- * Computes deltas in oldest→newest order, then returns newest-first for UI.
+ * WHAT: Builds In/Out/Qty columns from a series of chamber temperature readings.
+ * WHY: Inventory reports show stock movement between audits, not just raw counts.
+ * HOW: Sort oldest→newest, diff box counts, reverse for newest-first UI rows.
  */
 export function buildReportReadingRows(items) {
   if (!Array.isArray(items) || items.length === 0) return [];
 
+  /** Normalize date to YYYY-MM-DD for sorting. */
   const dateOf = (row) => String(row.formatted_date || row.entry_date || '').slice(0, 10);
 
+  /** Morning = 1, Evening = 2, unknown = 0 (sorts before morning on same day). */
   const shiftRank = (row) => {
     const s = String(row.shift || row.inspection_time || '').toLowerCase();
     if (s.includes('evening') || s.startsWith('16') || s.startsWith('18') || s.includes('04:00')) {
@@ -18,6 +19,7 @@ export function buildReportReadingRows(items) {
     return 0;
   };
 
+  /** Best-effort time string for tie-break when two readings share the same date/shift. */
   const timeKey = (row) => {
     const candidates = [
       row.created_at,
@@ -40,6 +42,7 @@ export function buildReportReadingRows(items) {
     return '';
   };
 
+  /** Read box count from whichever field the API sent. */
   const qtyOf = (row) => {
     if (!row) return null;
     const raw = row.box_count ?? row.physical_audit_count ?? row.count;
@@ -48,7 +51,6 @@ export function buildReportReadingRows(items) {
     return Number.isFinite(n) ? Math.max(0, n) : null;
   };
 
-  // Oldest → newest (so step = current - previous)
   const chrono = [...items].sort((a, b) => {
     const da = dateOf(a);
     const db = dateOf(b);
@@ -62,13 +64,12 @@ export function buildReportReadingRows(items) {
     return (Number(a.id) || 0) - (Number(b.id) || 0);
   });
 
-  // Prefer rows with box count for stock trail; keep others after
+  // Only rows with a numeric count can form an In/Out step; fall back to all rows if none have qty.
   const withQty = chrono.filter((r) => qtyOf(r) != null);
   const trail = withQty.length ? withQty : chrono;
 
   const enriched = trail.map((row, idx) => {
     const qty = qtyOf(row);
-    // Previous reading that also had a qty (skip nulls)
     let prevQty = null;
     for (let i = idx - 1; i >= 0; i -= 1) {
       const q = qtyOf(trail[i]);
@@ -100,11 +101,14 @@ export function buildReportReadingRows(items) {
     };
   });
 
-  // Newest first for reading UI
   return enriched.reverse();
 }
 
-/** Latest stock left from reading rows (newest qty). */
+/**
+ * WHAT: Returns current stock (newest reading’s box count).
+ * WHY: Report headers show “Qty left” without re-scanning the array.
+ * HOW: Reads _qty on rows[0] after buildReportReadingRows.
+ */
 export function latestReadingQty(rows) {
   if (!Array.isArray(rows) || !rows.length) return null;
   const q = rows[0]?._qty;

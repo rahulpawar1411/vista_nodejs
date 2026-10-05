@@ -1,5 +1,8 @@
 /**
- * Runtime permission helpers — camera & notifications (Android + iOS).
+ * Device permissions (src/utils/permissions.js).
+ * WHAT: Request camera, location, GPS, and notification access before DO features run.
+ * WHY: Compliance photos need GPS; reminders need notification permission on Android 13+.
+ * HOW: Wrap expo-image-picker, expo-location, and expo-notifications with Alerts and Settings links.
  */
 import { Alert, Linking, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';

@@ -2,7 +2,9 @@ import React from 'react';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 
 /**
- * Non-blocking loader over a mounted FlatList — avoids unmount flicker on large data.
+ * WHAT: Semi-transparent spinner card over a list that already has rows.
+ * WHY: Refresh should not replace the whole list with a blank loading screen.
+ * HOW: Absolute overlay with pointerEvents none so scrolling still works underneath.
  */
 export default function ListLoadingOverlay({ visible, label = 'Loading…' }) {
   if (!visible) return null;

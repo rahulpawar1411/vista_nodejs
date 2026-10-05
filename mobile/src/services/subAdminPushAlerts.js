@@ -1,3 +1,9 @@
+/**
+ * Sub-Admin push alerts (src/services/subAdminPushAlerts.js).
+ * WHAT: Registers Expo push and shows local fallback for new permission requests.
+ * WHY: Sub-Admins must know when a DO needs approve/deny even if the app was closed.
+ * HOW: Wraps expoPushRegistration; notifySubAdminIfNeeded when pending count rises.
+ */
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { ensureNotificationPermission } from '../utils/permissions';
@@ -60,7 +66,11 @@ async function pushLocal(title, body, data = {}) {
   }
 }
 
-/** Call once when Sub-Admin screen mounts. */
+/**
+ * WHAT: Sets notification handler and Android channel on first Sub-Admin mount.
+ * WHY: One-time setup before token registration or local alerts.
+ * HOW: ensureHandler + ensurePermissionChannel + ensureNotificationPermission.
+ */
 export async function initSubAdminPushAlerts() {
   ensureHandler();
   await ensurePermissionChannel();

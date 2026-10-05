@@ -111,6 +111,7 @@ export async function registerExpoPushToken({ apiUrl, authToken, force = false }
   }
 }
 
+/** WHAT: Removes stored token locally and DELETE on server. WHY: Called on logout. HOW: AsyncStorage + fetch DELETE. */
 export async function clearExpoPushToken({ apiUrl, authToken } = {}) {
   lastRegisterAt = 0;
   lastRegisterFingerprint = '';

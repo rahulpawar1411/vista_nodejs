@@ -36,11 +36,10 @@ function StatusBadge({ status }) {
 }
 
 /**
- * Sub-Admin Admin panel — three sections:
- *   1) Permissions — approve/deny DO requests
- *   2) DOs — create/edit operators (warehouse + chamber_limit)
- *   3) Master — catalog warehouse_master / client_master CRUD
- * Chamber↔client assignments for a DO are edited in SubAdminDoMasterSetup, not here.
+ * WHAT: Admin tab UI — permissions queue, DO accounts, and catalog master CRUD.
+ * WHY: Sub-Admins manage operators and masters without the web Super Admin portal.
+ * HOW: Three scroll sections; API via props (authHeaders, callbacks from SubAdminScreen).
+ * Note: Per-DO chamber/client assignments use SubAdminDoMasterSetup, not this panel.
  */
 export default function SubAdminAdminPanel({
   apiUrl,

@@ -1,11 +1,10 @@
 // ====================================================================
-// Customer — mobile/src/screens/CustomerScreen.js
+// CustomerScreen.js — read-only customer portal (role: customer)
 // --------------------------------------------------------------------
-// Role `customer`: read-only scoped portal.
-// Super Admin sets allowed_warehouses + allowed_clients — this screen
-// never edits catalog masters or DO assignments.
-// Lists: chamber / inward / outward / inventory (first 50, then +20).
-// Errors: formatUserError + InlineErrorState + Retry.
+// WHAT: Shows allowed warehouses/clients: chamber logs, dock movement, inventory, charts.
+// WHY: Customers must view their cold-chain data without editing masters or assignments.
+// HOW: API fetch with scope filters; paginated lists; formatUserError + InlineErrorState on failure.
+// Major areas: tab navigation, report filters, detail modals, temperature charts.
 // ====================================================================
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -899,8 +898,9 @@ function SensorPhotoView({ rawPath, apiUrl, folderHint = 'daily_temp_monitor_ima
 }
 
 /**
- * Customer portal — scoped read-only logs/inventory (allowed WH + clients only).
- * Does not edit masters or DO assignments.
+ * WHAT: Main Customer UI — tabs, filters, lists, and read-only detail modals.
+ * WHY: One component holds all customer-facing state and API calls.
+ * HOW: useState groups for nav, each report type, and selected log drill-down.
  */
 export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUpdate }) {
   const [activeTab, setActiveTab] = useState('Dashboard'); // Dashboard | Logs | Reports | More
@@ -2087,19 +2087,19 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
       const today = toLocalYmd();
 
       const todayRes = await fetch(
-        `${apiUrl}/api/chamber-temp?${new URLSearchParams({
-          page: '1',
-          limit: '100',
-          fromDate: today,
-          toDate: today
-        }).toString()}`,
-        {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${token}`
+          `${apiUrl}/api/chamber-temp?${new URLSearchParams({
+            page: '1',
+            limit: '100',
+            fromDate: today,
+            toDate: today
+          }).toString()}`,
+          {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${token}`
+            }
           }
-        }
       );
 
       const todayData = await todayRes.json().catch(() => ({}));
@@ -2523,14 +2523,14 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
       );
       list = whKey ? [...(warehouseClientsMap[whKey] || [])] : [];
       if (!list.length) {
-        list = Array.from(
-          new Set(
-            [...reportRows, ...chamberReportLogs]
+      list = Array.from(
+        new Set(
+          [...reportRows, ...chamberReportLogs]
               .filter((r) => normName(r.warehouse_name) === normName(logsWarehouseFilter))
-              .map((r) => String(r.client_name || '').trim())
-              .filter(Boolean)
-          )
-        );
+            .map((r) => String(r.client_name || '').trim())
+            .filter(Boolean)
+        )
+      );
       }
     }
     if (allowedClients.length) {
@@ -3174,11 +3174,11 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
             ? ['All', ...logsReportClientOptions]
             : isLogsType || isReportType
               ? logsTypeOptions
-              : isReportWarehouse
-                ? reportWarehouseOptions
+        : isReportWarehouse
+          ? reportWarehouseOptions
                 : isOverviewWarehouse
                   ? overviewWarehouseOptions
-                  : reportClientOptions;
+          : reportClientOptions;
     const selected = isWarehouse
       ? warehouseFilter
       : isClient
@@ -3189,11 +3189,11 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
             ? logsClientFilter
             : isLogsType || isReportType
               ? logsTypeFilter
-              : isReportWarehouse
-                ? reportWarehouseFilter
+        : isReportWarehouse
+          ? reportWarehouseFilter
                 : isOverviewWarehouse
                   ? overviewWarehouse
-                  : reportClientFilter;
+          : reportClientFilter;
     const formatOpt = (opt) => {
       if (isLogsType || isReportType) {
         return opt === 'all' || opt === 'All' ? 'All Types' : chamberZoneStyle(opt).type;
@@ -3730,7 +3730,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                     renderItem={({ item }) => (
                       <ChamberTempLogCard
                         item={item}
-                        onPress={() => setSelectedLog({ ...item, _logType: 'chambers' })}
+                          onPress={() => setSelectedLog({ ...item, _logType: 'chambers' })}
                       />
                     )}
                     contentContainerStyle={styles.reportsListBody}
@@ -3778,51 +3778,51 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                 {renderFilterDropdown('client', 'Client', clientOptions, clientFilter)}
               </View>
               <View style={[styles.inoutDateRow, { marginTop: 6 }]}>
-                <TouchableOpacity
-                  style={[
-                    styles.filterChip,
+                  <TouchableOpacity
+                    style={[
+                      styles.filterChip,
                     styles.inoutDateChip,
-                    dateFrom !== 'All' && styles.filterChipActive,
-                  ]}
-                  onPress={() => openCalendar('from')}
-                  activeOpacity={0.85}
-                >
-                  <View style={styles.filterChipTextWrap}>
+                      dateFrom !== 'All' && styles.filterChipActive,
+                    ]}
+                    onPress={() => openCalendar('from')}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.filterChipTextWrap}>
                     <Text style={styles.filterChipLabel}>Start date</Text>
-                    <Text
-                      style={[
-                        styles.filterChipValue,
-                        dateFrom !== 'All' && styles.filterChipValueActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {dateFrom === 'All' ? 'All' : formatDateLabel(dateFrom)}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.filterChip,
+                      <Text
+                        style={[
+                          styles.filterChipValue,
+                          dateFrom !== 'All' && styles.filterChipValueActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {dateFrom === 'All' ? 'All' : formatDateLabel(dateFrom)}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.filterChip,
                     styles.inoutDateChip,
-                    dateTo !== 'All' && styles.filterChipActive,
-                  ]}
-                  onPress={() => openCalendar('to')}
-                  activeOpacity={0.85}
-                >
-                  <View style={styles.filterChipTextWrap}>
+                      dateTo !== 'All' && styles.filterChipActive,
+                    ]}
+                    onPress={() => openCalendar('to')}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.filterChipTextWrap}>
                     <Text style={styles.filterChipLabel}>End date</Text>
-                    <Text
-                      style={[
-                        styles.filterChipValue,
-                        dateTo !== 'All' && styles.filterChipValueActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {dateTo === 'All' ? 'All' : formatDateLabel(dateTo)}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
+                      <Text
+                        style={[
+                          styles.filterChipValue,
+                          dateTo !== 'All' && styles.filterChipValueActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {dateTo === 'All' ? 'All' : formatDateLabel(dateTo)}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
               <View style={[styles.taskSearchRow, { marginTop: 6 }]}>
                 <TextInput
                   style={styles.taskSearchInput}
@@ -3859,7 +3859,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                   accessibilityLabel="Search"
                 >
                   <Ionicons name="search" size={16} color="#ffffff" />
-                </TouchableOpacity>
+                  </TouchableOpacity>
               </View>
             </View>
 
@@ -4101,10 +4101,10 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
       );
     }
 
-    return (
+      return (
       <ChamberTempLogCard
         item={item}
-        onPress={() => setSelectedLog(item)}
+          onPress={() => setSelectedLog(item)}
       />
     );
   };
@@ -4702,9 +4702,9 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
           ? overviewTempDateFrom
           : isOverviewCalendar
             ? overviewDate
-            : dateFrom === 'All'
-              ? null
-              : dateFrom;
+      : dateFrom === 'All'
+        ? null
+        : dateFrom;
   const calendarRangeTo =
     calendarContext === 'logsTemp'
       ? logsReportDateTo
@@ -4714,9 +4714,9 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
           ? overviewTempDateTo
           : isOverviewCalendar
             ? overviewDate
-            : dateTo === 'All'
-              ? null
-              : dateTo;
+      : dateTo === 'All'
+        ? null
+        : dateTo;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -4839,10 +4839,10 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
 
                     {overviewHomeSection === 'temperature' ? (
                     overviewLoading && !homeRefreshing ? (
-                      <View style={styles.centerState}>
-                        <ActivityIndicator size="large" color="#003580" />
+                  <View style={styles.centerState}>
+                    <ActivityIndicator size="large" color="#003580" />
                         <Text style={styles.stateText}>Loading Daily Temp Task…</Text>
-                      </View>
+                  </View>
                     ) : (
                     <View style={styles.card}>
                       <Text style={styles.cardTitle}>Daily Temp Task</Text>
@@ -4873,7 +4873,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                             <Text style={[styles.filterChipValue, styles.filterChipValueActive]} numberOfLines={1}>
                               {formatDateLabel(overviewTempDateTo)}
                             </Text>
-                          </View>
+                      </View>
                         </TouchableOpacity>
                       </View>
 
@@ -4958,11 +4958,11 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                                   ? 'Select year'
                                   : 'Select month'}
                             </Text>
-                            <ScrollView
+                        <ScrollView
                               style={styles.filterModalList}
                               keyboardShouldPersistTaps="handled"
-                              showsVerticalScrollIndicator={false}
-                            >
+                          showsVerticalScrollIndicator={false}
+                        >
                               {(showTempRangePicker === 'week'
                                 ? overviewTempWeekOptions
                                 : showTempRangePicker === 'year'
@@ -5000,14 +5000,14 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                                       ]}
                                     >
                                       {opt.label}
-                                    </Text>
+                              </Text>
                                     {active ? (
                                       <Ionicons name="checkmark" size={16} color="#003580" />
                                     ) : null}
                                   </TouchableOpacity>
                                 );
                               })}
-                            </ScrollView>
+                        </ScrollView>
                             <TouchableOpacity
                               style={styles.filterModalClose}
                               onPress={() => setShowTempRangePicker(null)}
@@ -5015,7 +5015,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                             >
                               <Text style={styles.filterModalCloseText}>Close</Text>
                             </TouchableOpacity>
-                          </View>
+                    </View>
                         </View>
                       </Modal>
 
@@ -5114,10 +5114,10 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                                     >
                                       {count}
                                     </Text>
-                                  </TouchableOpacity>
+                          </TouchableOpacity>
                                 );
                               })}
-                            </View>
+                        </View>
 
                             <TempTimeSeriesPlot
                               points={shiftTasks.filter(isFilledReading)}
@@ -5139,13 +5139,13 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                                 const active = overviewTempListFilter === btn.id;
                                 const meta = filterMeta[btn.id];
                                 return (
-                                  <TouchableOpacity
+                          <TouchableOpacity
                                     key={btn.id}
                                     onPress={() => {
                                       setOverviewTempListFilter(btn.id);
                                       setOverviewTempListPage(1);
                                     }}
-                                    activeOpacity={0.85}
+                            activeOpacity={0.85}
                                     style={{
                                       flex: 1,
                                       paddingVertical: 8,
@@ -5188,7 +5188,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                               <Text style={{ color: activeZoneStyle.color }}>
                                 {overviewTempZoneFilter === 'Chilled' ? 'Chiller' : overviewTempZoneFilter}
                               </Text>
-                            </Text>
+                              </Text>
                             {!list.length ? (
                               <Text style={{ fontSize: 12, color: '#94a3b8' }}>
                                 No {activeMeta.label.toLowerCase()} tasks in this range.
@@ -5273,7 +5273,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                           </>
                         );
                       })()}
-                    </View>
+                            </View>
                     )
                     ) : overviewLoading && !homeRefreshing ? (
                       <View style={styles.centerState}>
@@ -5288,21 +5288,21 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                           <Text style={styles.cardHint}>
                             How many inward vs outward moves in your date range
                           </Text>
-                        </View>
+                      </View>
                       </View>
 
                       <View style={styles.inoutDateRow}>
-                        <TouchableOpacity
+                          <TouchableOpacity
                           style={[styles.filterChip, styles.inoutDateChip]}
                           onPress={() => openOverviewInOutCalendar('from')}
-                          activeOpacity={0.85}
-                        >
+                            activeOpacity={0.85}
+                          >
                           <View style={styles.filterChipTextWrap}>
                             <Text style={styles.filterChipLabel}>Start date</Text>
                             <Text style={[styles.filterChipValue, styles.filterChipValueActive]} numberOfLines={1}>
                               {formatDateLabel(overviewInOutDateFrom)}
-                            </Text>
-                          </View>
+                              </Text>
+                            </View>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[styles.filterChip, styles.inoutDateChip]}
@@ -5315,8 +5315,8 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                               {formatDateLabel(overviewInOutDateTo)}
                             </Text>
                           </View>
-                        </TouchableOpacity>
-                      </View>
+                          </TouchableOpacity>
+                    </View>
                       <InOutDonutChart series={overviewSeries} />
 
                       <View style={styles.inoutProductGraphBox}>
@@ -5689,9 +5689,9 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                               ? overviewInOutDateTo
                               : isOverviewTaskCalendar
                                 ? overviewTempDateTo
-                              : dateTo === 'All'
-                                ? dateStr
-                                : dateTo;
+                            : dateTo === 'All'
+                              ? dateStr
+                              : dateTo;
                         const nextTo = dateStr > currentTo ? dateStr : currentTo;
                         applyCalendarRange(dateStr, nextTo);
                         setCalendarPickMode('to');
@@ -5746,39 +5746,39 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                 <Text style={styles.calendarClearText}>Clear</Text>
               </TouchableOpacity>
               {isRangeCalendar ? (
-                <TouchableOpacity
+              <TouchableOpacity
                   style={styles.calendarClearBtn}
-                  onPress={() => {
-                    const end = new Date();
-                    const start = new Date();
-                    start.setDate(end.getDate() - 6);
+                onPress={() => {
+                  const end = new Date();
+                  const start = new Date();
+                  start.setDate(end.getDate() - 6);
                     const from = toLocalYmd(start);
                     const to = toLocalYmd(end);
-                    if (calendarContext === 'logsTemp') {
+                  if (calendarContext === 'logsTemp') {
                       setLogsReportDateFrom(from);
                       setLogsReportDateTo(to);
                     } else if (isOverviewInOutCalendar) {
                       applyOverviewInOutRange(from, to);
                     } else if (isOverviewTaskCalendar) {
                       applyOverviewTempRange(from, to);
-                    } else {
-                      suggestLast7();
-                    }
+                  } else {
+                    suggestLast7();
+                  }
                     setCalendarPickMode('from');
-                    setShowCalendarModal(false);
-                  }}
+                  setShowCalendarModal(false);
+                }}
                   activeOpacity={0.85}
-                >
-                  <Text style={styles.calendarClearText}>Last 7 days</Text>
-                </TouchableOpacity>
-              ) : null}
-              <TouchableOpacity
-                style={styles.calendarDoneBtn}
-                onPress={() => setShowCalendarModal(false)}
-                activeOpacity={0.85}
               >
-                <Text style={styles.calendarDoneText}>Done</Text>
+                  <Text style={styles.calendarClearText}>Last 7 days</Text>
               </TouchableOpacity>
+              ) : null}
+            <TouchableOpacity
+              style={styles.calendarDoneBtn}
+              onPress={() => setShowCalendarModal(false)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.calendarDoneText}>Done</Text>
+            </TouchableOpacity>
             </View>
           </View>
         </View>

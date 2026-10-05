@@ -55,6 +55,8 @@ Catalog CRUD ≠ chamber–client assignments.
 
 Roles detail: [`docs/ROLES.md`](docs/ROLES.md)
 
+Comment style for new code (simple English, why + how): [`docs/CODE_COMMENTS.md`](docs/CODE_COMMENTS.md)
+
 ---
 
 ## Features / Features kya hain

@@ -1,13 +1,7 @@
 /**
- * Generate phone launcher icons from ReeferON logo.
- * Run: node scripts/generateAppIcon.js
- *
- * Outputs:
- *   assets/icon.png                    → iOS + Expo (1024×1024, white bg + rounded)
- *   assets/android-icon-foreground.png → Android adaptive
- *   assets/android-icon-background.png → solid white
- *   assets/splash-icon.png
- *   assets/favicon.png
+ * WHAT: Dev script — builds Expo/iOS/Android launcher and splash icon PNGs from the logo.
+ * WHY: Store builds require fixed-size icon assets in assets/.
+ * HOW: Run: node scripts/generateAppIcon.js (see outputs listed in script comments).
  */
 const path = require('path');
 const fs = require('fs');

@@ -1,4 +1,11 @@
-/** Build URL-safe uppercase slug for master codes. */
+/**
+ * Client master codes (src/utils/generateClientCode.js).
+ * WHAT: Builds CL-WH-CLIENT style codes for new client master rows.
+ * WHY: Super Admin / Sub-Admin catalog needs unique readable identifiers.
+ * HOW: Slug client and warehouse names, then prefix with CL-.
+ */
+
+/** WHAT: Uppercase hyphen slug from arbitrary text. HOW: Strip non-alphanumerics and trim length. */
 function slugPart(value, maxLen = 14) {
   return String(value || '')
     .trim()
@@ -38,7 +45,11 @@ function clientToken(clientName) {
   return slugPart(name.replace(/\s+/g, '-'), 16);
 }
 
-/** Generate client master code from client + warehouse labels. */
+/**
+ * WHAT: Produces a new client code string for master data entry.
+ * WHY: Tied to warehouse so the same client name at two sites gets distinct codes.
+ * HOW: clientToken + warehouseToken joined as CL-{wh}-{client}.
+ */
 export function generateClientCode(clientName, warehouseName, warehouseCode) {
   const clientPart = clientToken(clientName);
   if (!clientPart) return '';

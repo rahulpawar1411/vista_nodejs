@@ -23,7 +23,11 @@ import SubAdminScreen from './src/screens/SubAdminScreen';
 import SplashScreen from './src/screens/SplashScreen';
 import { clearSyncedInspectionsLocally, initDatabase } from './src/database/db';
 
-/** Live backend: Render. No trailing slash, no /api (app adds /api/...). */
+/**
+ * WHAT: Reads the production API base URL from env or app config.
+ * WHY: The app must know where to send login and data requests when not using a local PC server.
+ * HOW: Checks EXPO_PUBLIC_API_URL and expo config, then strips trailing slashes and /api suffix.
+ */
 function readProductionApiUrl() {
   const raw =
     process.env.EXPO_PUBLIC_API_URL ||
@@ -40,7 +44,11 @@ export const PRODUCTION_API_URL = readProductionApiUrl();
 /** Used only when Metro host IP cannot be detected — keep in sync with PC Wi‑Fi IPv4. */
 const FALLBACK_LOCAL_IP = '192.168.64.129';
 
-/** Pull first usable LAN IPv4 from a host string / URL. */
+/**
+ * WHAT: Finds a Wi‑Fi/LAN IP address inside a debugger or script URL string.
+ * WHY: Local development needs http://YOUR-PC-IP:5000 instead of localhost on a physical phone.
+ * HOW: Regex match for dotted IPv4; ignores loopback and emulator-only addresses.
+ */
 function extractLanIp(raw) {
   if (!raw || typeof raw !== 'string') return null;
   const text = raw.trim();
@@ -53,7 +61,9 @@ function extractLanIp(raw) {
 }
 
 /**
- * Local backend URL for Expo Go / emulator on the same Wi‑Fi.
+ * WHAT: Builds the URL for a backend running on your PC (port 5000).
+ * WHY: DO operators testing against a local server must hit the PC’s LAN IP, not localhost.
+ * HOW: Reads Metro/Expo host from native SourceCode or Constants, else uses FALLBACK_LOCAL_IP.
  * @returns {string} e.g. http://192.168.x.x:5000
  */
 export function getLocalApiUrl() {
@@ -87,13 +97,22 @@ export function getLocalApiUrl() {
   return `http://${FALLBACK_LOCAL_IP}:5000`;
 }
 
+/**
+ * WHAT: Checks if a URL points at the hosted (HTTPS / Render) backend.
+ * WHY: Local URLs need refresh on Wi‑Fi change; production URLs stay stable.
+ * HOW: Looks for onrender.com or https:// prefix after trimming.
+ */
 export function isProductionApiUrl(url) {
   if (!url || typeof url !== 'string') return false;
   const u = url.trim().toLowerCase();
   return u.includes('onrender.com') || u.startsWith('https://');
 }
 
-/** True when URL points at a local/LAN backend (IP changes often). */
+/**
+ * WHAT: Detects a local development server URL (HTTP on LAN IP or port 5000).
+ * WHY: Stored api_url may be stale after DHCP — App refreshes it on session restore.
+ * HOW: Excludes HTTPS/Render, then matches localhost, 10.0.2.2, or private IPv4 patterns.
+ */
 export function isLocalApiUrl(url) {
   if (!url || typeof url !== 'string') return false;
   const u = url.trim().toLowerCase();
@@ -108,7 +127,13 @@ export function isLocalApiUrl(url) {
   );
 }
 
+/**
+ * WHAT: Root app shell — splash, login, then one main screen per user role.
+ * WHY: Keeps DO, Customer, and Sub-Admin flows separate with shared session and API URL state.
+ * HOW: Restores token from AsyncStorage, validates with /api/auth/me, renders the matching screen.
+ */
 export default function App() {
+  // Session + server URL (persisted in AsyncStorage)
   const [apiUrl, setApiUrl] = useState(PRODUCTION_API_URL);
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
@@ -210,6 +235,7 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  /** WHAT: Saves user + JWT after LoginScreen succeeds. WHY: Stay signed in and route by role. HOW: setState + AsyncStorage. */
   const handleLoginSuccess = async (sessionData) => {
     const nextUser = sessionData?.user || null;
     const nextToken = sessionData?.token || null;
@@ -228,6 +254,7 @@ export default function App() {
     }
   };
 
+  /** WHAT: Updates which backend the app talks to. WHY: Dev/test against local or Render. HOW: Normalize URL and persist. */
   const handleUpdateApiUrl = async (newUrl) => {
     try {
       const clean = String(newUrl || '')
@@ -242,6 +269,7 @@ export default function App() {
     }
   };
 
+  /** WHAT: Signs the user out and clears cached data. WHY: Security and fresh login. HOW: Clear storage + local SQLite synced rows. */
   const handleLogout = async () => {
     // Clear in-memory session first so UI returns to login immediately
     setUser(null);

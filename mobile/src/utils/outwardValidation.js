@@ -1,4 +1,9 @@
-// Client-side outward validation — mirrors backend/web rules
+/**
+ * Outward dock form validation (src/utils/outwardValidation.js).
+ * WHAT: Sanitizes and validates outward (loading) forms on the device.
+ * WHY: Same business rules as web/backend — fewer failed uploads.
+ * HOW: Parallel helpers to inwardValidation (vehicle, photos, multi-step wizard).
+ */
 
 const REQUIRED_FIELDS = [
   ['outward_entry_date', 'Entry Date'],
@@ -79,7 +84,9 @@ function getExpectedPhoneDigits(countryCode) {
   return 10;
 }
 
-/** Vehicle no — uppercase + auto hyphens (e.g. MH-12-QW-1234), max 10 alnum. */
+// --- Field sanitizers (clean user typing as they type) ---
+
+/** WHAT: Formats vehicle number with hyphens. WHY/HOW: Same rules as inward dock forms. */
 export function formatVehicleNumber(value) {
   const raw = String(value ?? '')
     .replace(/[^a-zA-Z0-9]/g, '')
@@ -197,6 +204,13 @@ function hasPhotoValue(val, multi) {
   return !!val;
 }
 
+// --- Full-form and step validation ---
+
+/**
+ * WHAT: Validates entire outward form — fields, photos, phone, loading times.
+ * WHY: Block submit before queue/sync when business rules fail.
+ * HOW: Returns { ok, missing, missingKeys, message } like inward validation.
+ */
 export function validateOutwardForm(form, photos, driverCountryCode = '+91') {
   const missing = [];
   const missingKeys = [];

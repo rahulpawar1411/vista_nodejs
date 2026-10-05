@@ -1,6 +1,8 @@
 /**
- * Compress + mild downscale for DO camera captures.
- * Keeps sensor text readable while lowering RAM / upload size.
+ * Image compression (src/utils/compressImage.js).
+ * WHAT: Shrinks camera photos before upload or SQLite storage.
+ * WHY: Full-resolution JPEGs cause OOM and slow sync on Android.
+ * HOW: expo-image-manipulator resize (max edge 1600) + JPEG quality ~0.55.
  */
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Image } from 'react-native';
@@ -26,10 +28,9 @@ function getImageSize(uri) {
 }
 
 /**
- * @param {string} uri - local file URI from camera
- * @param {number} [quality]
- * @param {{ width?: number, height?: number }} [knownSize]
- * @returns {Promise<string>} compressed JPEG URI (or original on failure)
+ * WHAT: Returns a smaller JPEG file URI for the same photo.
+ * WHY: Used after every verification camera capture.
+ * HOW: Optional resize then compress; returns original uri if manipulation fails.
  */
 export async function compressImageOnly(uri, quality = DEFAULT_COMPRESS, knownSize = null) {
   if (!uri || typeof uri !== 'string') return uri;

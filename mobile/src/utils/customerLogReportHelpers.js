@@ -1,6 +1,20 @@
+/**
+ * Log report helpers (src/utils/customerLogReportHelpers.js).
+ * WHAT: Build image URLs and photo lists for chamber/dock log cards.
+ * WHY: Photos may live on Cloudinary, Render, or local file URIs — screens need one resolver.
+ * HOW: Parse paths, map uploads/ to CDN, and expose GPS/map helpers for detail views.
+ */
+
+/** Page size for dock inward/outward report lists in mobile UI. */
 export const DOCK_REPORT_PAGE_SIZE = 15;
+/** Default page size for generic paginated log lists. */
 export const LIST_PAGE_SIZE = 15;
 
+/**
+ * WHAT: Splits a comma-separated photo field into individual URL/path strings.
+ * WHY: API sometimes stores multiple Cloudinary URLs in one column.
+ * HOW: Split on commas, with special handling when each segment starts with http.
+ */
 export function splitLogPhotoPaths(value) {
   if (!value) return [];
   const raw = String(value).trim();
@@ -54,8 +68,9 @@ const DEFAULT_CLOUDINARY_CLOUD =
   'de9ba8bpk';
 
 /**
- * Resolve image URL for React Native.
- * Prefer Cloudinary CDN — Render ephemeral disk often 404s on /uploads/*.
+ * WHAT: Turns a stored photo path into a URL the Image component can load.
+ * WHY: Paths may be Cloudinary, relative uploads, base64, or local file URIs.
+ * HOW: Prefer CDN; fall back to apiUrl + uploads path with folder hint.
  */
 export function resolveLogImageUrl(raw, baseUrl, folderHint = 'daily_temp_monitor_images') {
   if (raw == null) return null;

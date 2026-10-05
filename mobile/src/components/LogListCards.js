@@ -1,3 +1,9 @@
+/**
+ * Shared log list UI (src/components/LogListCards.js).
+ * WHAT: Pagination helpers and card rows for chamber temp and dock logs.
+ * WHY: Customer, DO, and Sub-Admin screens share the same list look and behavior.
+ * HOW: paginateList + ChamberTempLogCard + DockMovementLogCard + ListPageFooter.
+ */
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import FastTouchable from './FastTouchable';
@@ -14,7 +20,11 @@ const ALERT_RED = '#dc2626';
 
 export { LIST_PAGE_SIZE };
 
-/** Previous / Next footer for any list (15 per page). */
+/**
+ * WHAT: Previous/Next footer with “1–15 of N” text.
+ * WHY: Long log histories need paging without loading everything at once.
+ * HOW: Hides when total <= pageSize; disables buttons at first/last page.
+ */
 export function ListPageFooter({
   page = 1,
   pageSize = LIST_PAGE_SIZE,
@@ -53,6 +63,7 @@ export function ListPageFooter({
   );
 }
 
+/** WHAT: Slices an array for one page. WHY: Shared math for footers and charts. HOW: Returns { items, page, totalPages, total }. */
 export function paginateList(list, page = 1, pageSize = LIST_PAGE_SIZE) {
   const arr = Array.isArray(list) ? list : [];
   const totalPages = Math.max(1, Math.ceil(arr.length / pageSize));

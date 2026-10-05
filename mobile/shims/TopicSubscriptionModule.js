@@ -1,6 +1,7 @@
 /**
- * Stub for ExpoTopicSubscriptionModule — not present in Expo Go.
- * Matches expo-notifications TopicSubscriptionModule.js (non-Android default).
+ * WHAT: Fake native module for Firebase-style topic subscribe/unsubscribe APIs.
+ * WHY: Expo Go has no ExpoTopicSubscriptionModule binary, but expo-notifications still imports it.
+ * HOW: Export empty listeners and Promise.resolve stubs so imports succeed without crashing.
  */
 const module = {
   addListener: () => {},

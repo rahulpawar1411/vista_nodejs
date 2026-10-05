@@ -1,13 +1,10 @@
 // ====================================================================
-// Sub Admin — mobile/src/screens/SubAdminScreen.js
+// SubAdminScreen.js — Sub-Admin mobile console (role: sub_admin)
 // --------------------------------------------------------------------
-// Role `sub_admin`: mobile mini-admin (same data scope as Super Admin).
-// Tabs: Dashboard | Logs | Reports | Admin | More
-// Admin → Master = catalog (warehouse_master / client_master).
-// DO profile → Edit chambers & clients = assignments (operational).
-// Permissions: approve free; deny requires remark. Push on new request
-// even if this app is closed. No overdue push — overdue is dashboard only.
-// Errors: formatUserError + InlineErrorState; reports keep last cache offline.
+// WHAT: Mini-admin: dashboard, logs, reports, catalog master, DO assignments, permissions.
+// WHY: Sub-Admins approve DO edits and manage masters without the full web portal.
+// HOW: Tab navigation; SubAdminAdminPanel + DoMasterSetup; push alerts for new permissions.
+// Major areas: overview metrics, log lists, report drill-down, Admin tab, permission queue.
 // ====================================================================
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -326,6 +323,11 @@ function getSubAdminBottomTabIndex(tab) {
   return 4;
 }
 
+/**
+ * WHAT: Main Sub-Admin UI — dashboard, logs, reports, Admin master, permissions.
+ * WHY: Centralizes mobile admin workflows and push notification hooks.
+ * HOW: Tab state + fetch helpers; delegates master forms to child panel components.
+ */
 export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
   const [activeTab, setActiveTab] = useState('Dashboard');
   const tabIndicatorX = useRef(new Animated.Value(0)).current;

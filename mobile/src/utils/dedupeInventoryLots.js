@@ -1,7 +1,14 @@
 /**
- * Reports lots: one card per client + chamber + warehouse.
- * Same-day Morning + Evening audits must not create duplicate lots.
- * Same client on Chamber 1 (Frozen) and Chamber 2 (Chilled) stay two lots.
+ * Inventory lot helpers (src/utils/dedupeInventoryLots.js).
+ * WHAT: Groups report rows by client/chamber/warehouse and applies temperature zone rules.
+ * WHY: Reports must not show duplicate lots; compliance colors depend on Frozen/Chilled/Dry.
+ * HOW: Stable string keys, dedupe by latest audit date, and range checks for box temp.
+ */
+
+/**
+ * WHAT: Unique string key for one inventory lot row.
+ * WHY: Merge Morning/Evening audits for the same client in the same chamber.
+ * HOW: Join client, warehouse, chamber id, and chamber name with separators.
  */
 export function inventoryLotKey(row) {
   if (!row) return '';
@@ -21,10 +28,16 @@ export function inventoryLotKey(row) {
   return `${client}|||${wh}|||${cid}|||${cname}`;
 }
 
+/** WHAT: True if two rows represent the same lot. HOW: Compare inventoryLotKey results. */
 export function sameInventoryLot(a, b) {
   return inventoryLotKey(a) === inventoryLotKey(b);
 }
 
+/**
+ * WHAT: Maps free-text chamber type to Frozen, Chilled, Dry, or Other.
+ * WHY: UI chips and temp bands need consistent labels.
+ * HOW: Simple keyword tests on the input string.
+ */
 export function normalizeChamberZone(raw) {
   const s = String(raw || '').trim();
   if (!s) return '';
@@ -41,6 +54,7 @@ export function isRealComplianceZone(raw) {
   return t === 'Frozen' || t === 'Chilled' || t === 'Dry';
 }
 
+/** WHAT: First real Frozen/Chilled/Dry zone from a list of candidate strings. WHY: Pick best type from messy API data. */
 export function pickComplianceZone(...candidates) {
   for (const c of candidates) {
     if (isRealComplianceZone(c)) return normalizeChamberZone(c);
@@ -52,6 +66,7 @@ export function pickComplianceZone(...candidates) {
   return '';
 }
 
+/** WHAT: UI colors for a zone chip. WHY: Consistent badges across screens. HOW: Map zone → { color, bg }. */
 export function chamberZoneStyle(raw) {
   const type = normalizeChamberZone(raw) || 'Frozen';
   if (type === 'Frozen') return { type, color: '#1d4ed8', bg: '#dbeafe' };
@@ -95,6 +110,11 @@ export function getChamberTempDeviation(temp, chamberType) {
   return null;
 }
 
+/**
+ * WHAT: Collapse duplicate lot rows keeping the newest audit per inventoryLotKey.
+ * WHY: Report lists should show one card per client/chamber/warehouse.
+ * HOW: Map by key; compare last_audit_date strings.
+ */
 export function dedupeInventoryLots(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return [];
   const map = new Map();

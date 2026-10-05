@@ -4,9 +4,9 @@ import { Platform } from 'expo-modules-core';
 let didWarn = false;
 
 /**
- * Upstream throws on Android Expo Go, which crashes the app as soon as
- * expo-notifications is imported (DevicePushTokenAutoRegistration side effect).
- * Warn once instead so local notifications still work in Expo Go.
+ * WHAT: Logs a one-time warning about Android push limits in Expo Go.
+ * WHY: Remote push tokens are not supported there — developers need a dev/production build instead.
+ * HOW: Metro redirects expo-notifications to this file; we check isRunningInExpoGo() and warn once.
  */
 export const warnOfExpoGoPushUsage = () => {
   if (isRunningInExpoGo() && !didWarn) {

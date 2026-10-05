@@ -31,13 +31,9 @@ const sameClient = (a, b) =>
     : String(a.client_name || '').toLowerCase() === String(b.client_name || '').toLowerCase();
 
 /**
- * Sub Admin — editable Master Setup for one DO warehouse.
- *
- * Edits chambers + chamber_client_assignments (operational graph).
- * Client picker prefers client_master for that warehouse; custom names
- * are allowed and land on assignments (catalog backfill may catch up later).
- * Sub Admin / Super Admin can save without DO permission requests.
- * Prefer unique chamber names per warehouse (chamber names are globally unique in DB).
+ * WHAT: Modal editor for one DO’s chambers and client assignments (operational graph).
+ * WHY: Assignments differ from catalog master — they drive daily temperature tasks.
+ * HOW: Loads/saves via API; chamber limit and client codes; Sub-Admin saves without DO permission flow.
  */
 export default function SubAdminDoMasterSetup({
   visible,

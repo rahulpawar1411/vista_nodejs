@@ -1,3 +1,9 @@
+/**
+ * Log photo + GPS UI (src/components/LogDetailPhotoLocation.js).
+ * WHAT: Reusable rows, grids, and full-screen preview for log photos with location.
+ * WHY: Customer, DO, and Sub-Admin detail screens share the same photo/GPS presentation.
+ * HOW: Composes formatPhotoGps helpers with tappable map links and ImagePreviewModal.
+ */
 import React, { useState } from 'react';
 import {
   View,
@@ -23,6 +29,7 @@ import {
 const TouchableOpacity = FastTouchable;
 const PREVIEW_H = Math.round(Dimensions.get('window').height * 0.78);
 
+/** WHAT: Label + tappable GPS line for log detail screens. WHY: Open maps from audit coordinates. */
 export function GpsDetailRow({ label, lat, lng, accuracy, displayText }) {
   const text =
     displayText ||
@@ -56,6 +63,7 @@ export function GpsDetailRow({ label, lat, lng, accuracy, displayText }) {
   );
 }
 
+/** WHAT: Small time/location caption under a captured form photo. WHY: Show audit meta inline. */
 export function PhotoCaptureCaption({ photo, formatClockTime }) {
   if (!photo || typeof photo !== 'object') return null;
 
@@ -95,6 +103,7 @@ export function PhotoCaptureCaption({ photo, formatClockTime }) {
   );
 }
 
+/** WHAT: Card listing all photo capture metadata lines for a log. WHY: Detail modal summary. */
 export function PhotoCaptureMetaSection({ metadata }) {
   const lines = formatPhotoCaptureMetadataLines(metadata);
   if (!lines.length) return null;
@@ -110,7 +119,11 @@ export function PhotoCaptureMetaSection({ metadata }) {
   );
 }
 
-/** Full-screen image viewer — tap photo in details to open. */
+/**
+ * WHAT: Full-screen modal to view one log photo with optional GPS and time footer.
+ * WHY: Operators need zoomable proof images without leaving the app.
+ * HOW: Modal + Image; map link when lat/lng present.
+ */
 export function ImagePreviewModal({ visible, uri, label, onClose, locationText, lat, lng, timeText }) {
   if (!uri) return null;
   const hasGps =
@@ -178,6 +191,11 @@ export function ImagePreviewModal({ visible, uri, label, onClose, locationText, 
   );
 }
 
+/**
+ * WHAT: Grid of tappable log photos with GPS/time captions.
+ * WHY: Inward/outward/chamber detail modals show many proof images consistently.
+ * HOW: resolveUri builds CDN URL; opens ImagePreviewModal on tap.
+ */
 export function PhotoGridWithLocation({ photoItems, folderHint, photoMeta, resolveUri }) {
   const [preview, setPreview] = useState(null);
   if (!photoItems?.length) return null;

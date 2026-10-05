@@ -1,3 +1,9 @@
+/**
+ * Offline sync engine (src/services/syncEngine.js).
+ * WHAT: Uploads pending SQLite rows when the phone has network.
+ * WHY: DO work continues offline; server must receive assignments, temp logs, dock forms, and activities.
+ * HOW: triggerSync POSTs each queue; subscribeToSync runs on NetInfo reconnect and app foreground.
+ */
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -46,6 +52,11 @@ const LAST_SYNC_KEY = 'reeferon_last_sync_at';
 /** Prevent overlapping sync runs. */
 let isSyncing = false;
 
+/**
+ * WHAT: Reads ISO timestamp of the last successful sync from AsyncStorage.
+ * WHY: UI shows “Last synced …” to the operator.
+ * HOW: getItem on reeferon_last_sync_at key.
+ */
 export async function getLastSyncAt() {
   try {
     return (await AsyncStorage.getItem(LAST_SYNC_KEY)) || null;
@@ -70,8 +81,9 @@ function countPending(warehouseName, operatorName, operatorEmail) {
 }
 
 /**
- * Upload pending assignments + inspections + inward/outward queues.
- * Continues after individual failures (no break).
+ * WHAT: One full upload pass for all pending local data.
+ * WHY: Central place so Dashboard and background listeners share the same sync logic.
+ * HOW: Guard with isSyncing; loop queues; call mark*Synced or mark*Error; emit onSyncProgress.
  */
 export const triggerSync = async (apiBaseUrl, token, onSyncProgress = () => {}, userProfile = {}) => {
   const warehouseName = userProfile?.warehouse_name || null;
@@ -455,6 +467,11 @@ export const triggerSync = async (apiBaseUrl, token, onSyncProgress = () => {}, 
   }
 };
 
+/**
+ * WHAT: Starts automatic sync when network comes back and every 30 seconds while online.
+ * WHY: DO should not manually tap sync after every reconnect.
+ * HOW: NetInfo listener + interval both call triggerSync; return function unsubscribes.
+ */
 export const subscribeToSync = (apiBaseUrl, token, onSyncProgress = () => {}, userProfile = {}) => {
   let retryTimer = null;
 
@@ -480,7 +497,11 @@ export const subscribeToSync = (apiBaseUrl, token, onSyncProgress = () => {}, us
   };
 };
 
-/** Format ISO timestamp for DO sync UI. */
+/**
+ * WHAT: Turns an ISO sync time into a friendly label like “2:45 PM today”.
+ * WHY: Operators read clocks easier than raw ISO strings.
+ * HOW: new Date(iso) with fallback “Never synced”.
+ */
 export function formatLastSyncLabel(iso) {
   if (!iso) return 'Never synced';
   try {

@@ -1,3 +1,9 @@
+/**
+ * OutwardFormView — multi-step outward (loading) dock form for DO.
+ * WHAT: Wizard for truck loading data, verification photos, submit or offline queue.
+ * WHY: Mirror inward flow with outward-specific validation and API endpoints.
+ * HOW: Seven steps, outwardValidation, saveOutwardLocally or multipart POST when online.
+ */
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
@@ -167,6 +173,11 @@ function waitForSubmitUiPaint() {
   });
 }
 
+/**
+ * WHAT: Renders outward wizard and handles draft, submit, and sync states.
+ * WHY: Embedded from Dashboard outward navigation section.
+ * HOW: Same prop contract as InwardFormView for consistent parent wiring.
+ */
 export default function OutwardFormView({
   apiUrl,
   token,

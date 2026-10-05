@@ -1,3 +1,9 @@
+/**
+ * DatePickerField — calendar modal for YYYY-MM-DD form fields.
+ * WHAT: Tappable field that opens a month grid to pick a date.
+ * WHY: Native date inputs vary; one consistent picker for inward/outward forms.
+ * HOW: value/onChange as YYYY-MM-DD strings; minDate disables earlier days.
+ */
 import React, { useMemo, useState } from 'react';
 import { View, Text, Modal, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -43,6 +49,7 @@ function getCalendarDays(dateObj) {
   return days;
 }
 
+/** WHAT: Controlled date field + calendar modal. WHY/HOW: See file header; wires label/value/onChange. */
 export default function DatePickerField({
   label,
   value,
