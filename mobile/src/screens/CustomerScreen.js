@@ -4470,6 +4470,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                       : null
               )}
               {renderDoDetailRow('Warehouse', item.warehouse_name)}
+              {renderDoDetailRow('Chamber', item.chamber_name)}
               {renderDoDetailRow('Chamber type', typeLabel || item.chamber_type)}
               {renderDoDetailRow('Shift', item.shift)}
               {renderDoDetailRow('Inspection time', item.inspection_time)}
@@ -5201,6 +5202,8 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                                       ...row.sourceLog,
                                       _logType: 'chambers',
                                       client_name: row.sourceLog.client_name || row.client,
+                                      chamber_id:
+                                        row.sourceLog.chamber_id ?? row.chamberId ?? null,
                                       chamber_name: row.sourceLog.chamber_name || row.chamber,
                                       shift: row.sourceLog.shift || row.shift,
                                       box_count:
@@ -5230,6 +5233,7 @@ export default function CustomerScreen({ user, token, apiUrl, onLogout, onUserUp
                                     }
                                   : {
                                       client_name: row.client,
+                                      chamber_id: row.chamberId ?? null,
                                       chamber_name: row.chamber || '—',
                                       shift: row.shift,
                                       box_count: row.boxCount,

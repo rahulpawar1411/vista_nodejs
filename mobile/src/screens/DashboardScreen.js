@@ -587,10 +587,31 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
 
   /** UI number from chamber name (Chamber 1 → 01), never raw DB auto-id. */
   const getChamberDisplayNo = (chamber) => {
-    const fromName = String(chamber?.name || '').match(/(\d+)/);
+    const label = String(chamber?.name || chamber?.chamber_name || '').trim();
+    const fromName = label.match(/(\d+)/);
     if (fromName) return String(parseInt(fromName[1], 10)).padStart(2, '0');
+    const fromList =
+      chamber?.id != null
+        ? (chambersList || []).find((c) => Number(c.id) === Number(chamber.id))
+        : null;
+    const fromListName = String(fromList?.name || '').match(/(\d+)/);
+    if (fromListName) return String(parseInt(fromListName[1], 10)).padStart(2, '0');
+    if (label) return label;
     if (chamber?.id != null) return String(chamber.id).padStart(2, '0');
     return '—';
+  };
+
+  /** Resolve display chamber for task cards / profile (name + number). */
+  const resolveTaskChamber = (itemOrLog) => {
+    const id = itemOrLog?.chamber_id ?? itemOrLog?.id;
+    const fromList =
+      id != null ? (chambersList || []).find((c) => Number(c.id) === Number(id)) : null;
+    const name =
+      fromList?.name ||
+      itemOrLog?.chamber_name ||
+      itemOrLog?.name ||
+      (id != null ? `Chamber ${id}` : 'Chamber');
+    return { id: id ?? fromList?.id, name };
   };
 
   /** Approval cards must show Chamber 1/2 from the name, never DB id 10/12. */
@@ -4926,16 +4947,17 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
       return;
     }
 
-    setSelectedChamber({
-      id: log.chamber_id ?? item.chamber_id,
-      name: log.chamber_name || item.chamber_name
+    const chamber = resolveTaskChamber({
+      chamber_id: log.chamber_id ?? item.chamber_id,
+      chamber_name: log.chamber_name || item.chamber_name
     });
+    setSelectedChamber(chamber);
     setSelectedClient(log.client_name || item.client_name);
     setTempInput(log.box_temp != null ? String(log.box_temp) : '');
     setBoxCountInput(log.box_count != null ? String(log.box_count) : '');
     setCapturedImage(log.temp_sensor_image || log.photo_url || null);
     setSelectedChamberType(
-      log.chamber_type || getChamberTypeAndDefault(item.chamber_id, item.client_name).type
+      log.chamber_type || getChamberTypeAndDefault(chamber.id, item.client_name).type
     );
     setLogOperatorName(log.monitor_supervisor_name || displayName);
     setLogWarehouseName(log.warehouse_name || user?.warehouse_name || '—');
@@ -4944,6 +4966,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
     setLogEntryDate(logDateKey(log.entry_date || log.formatted_date) || targetDate);
     setLogEntryTime(log.inspection_time || item.shift_time || '');
     setLogShift(resolveLogShiftName(log) || wantShift);
+    setSelectedShift(wantShift === 'Evening' ? '16:00' : '10:00');
 
     applyPhotoCaptureFromLog(log);
 
@@ -6150,7 +6173,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                   />
 
                   <View style={[styles.taskCardBody, isChamberRow && { alignItems: 'flex-start' }]}>
-                    {/* Card body is display-only — All / Pending / Completed: only Record Log or Edit buttons act */}
+                    {/* Card body is display-only — All / Pending / Completed: only Record Log / View / Edit act */}
                     <View style={styles.taskCardMain} pointerEvents="none">
                       <Text style={styles.taskClientName} numberOfLines={1}>
                         {titleText}
@@ -6221,41 +6244,51 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                           <Text style={styles.logActionBtnText}>Record Log</Text>
                         </TouchableOpacity>
                       ) : (
-                        <TouchableOpacity
-                          style={styles.logActionBtn}
-                          onPress={() => {
-                            if (isChamberRow) {
-                              const targetDate = item.due_date || getLocalDateStr();
-                              const shiftName = item.shift_time === '16:00' ? 'Evening' : 'Morning';
-                              const chamberLog = completedLogs.find(
-                                (l) =>
-                                  logMatchesChamberRef(l, item.chamber_id, item.chamber_name) &&
-                                  logOnDate(l, targetDate) &&
-                                  resolveLogShiftName(l) === shiftName
-                              );
-                              if (!chamberLog) {
-                                Alert.alert('Edit', 'No completed client logs were found for this chamber.');
-                                return;
+                        <View style={styles.taskDoneActions}>
+                          <TouchableOpacity
+                            style={styles.viewActionBtn}
+                            onPress={() => handleOpenTaskDetail(item, log)}
+                            activeOpacity={0.85}
+                          >
+                            <Ionicons name="eye-outline" size={14} color="#003580" style={{ marginRight: 4 }} />
+                            <Text style={styles.viewActionBtnText}>View</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.logActionBtn}
+                            onPress={() => {
+                              if (isChamberRow) {
+                                const targetDate = item.due_date || getLocalDateStr();
+                                const shiftName = item.shift_time === '16:00' ? 'Evening' : 'Morning';
+                                const chamberLog = completedLogs.find(
+                                  (l) =>
+                                    logMatchesChamberRef(l, item.chamber_id, item.chamber_name) &&
+                                    logOnDate(l, targetDate) &&
+                                    resolveLogShiftName(l) === shiftName
+                                );
+                                if (!chamberLog) {
+                                  Alert.alert('Edit', 'No completed client logs were found for this chamber.');
+                                  return;
+                                }
+                                if (item.shift_time === '16:00') handleSelectShift('Evening');
+                                else handleSelectShift('Morning');
+                                handleEditCompletedLog({
+                                  ...item,
+                                  chamber_id: chamberLog.chamber_id,
+                                  chamber_name: chamberLog.chamber_name || item.chamber_name,
+                                  client_name: chamberLog.client_name,
+                                  shift_time: item.shift_time || (shiftName === 'Evening' ? '16:00' : '10:00'),
+                                  shift_label: item.shift_label || `${shiftName} Task`
+                                });
+                              } else {
+                                handleEditCompletedLog(item);
                               }
-                              if (item.shift_time === '16:00') handleSelectShift('Evening');
-                              else handleSelectShift('Morning');
-                              handleEditCompletedLog({
-                                ...item,
-                                chamber_id: chamberLog.chamber_id,
-                                chamber_name: chamberLog.chamber_name || item.chamber_name,
-                                client_name: chamberLog.client_name,
-                                shift_time: item.shift_time || (shiftName === 'Evening' ? '16:00' : '10:00'),
-                                shift_label: item.shift_label || `${shiftName} Task`
-                              });
-                            } else {
-                              handleEditCompletedLog(item);
-                            }
-                          }}
-                          activeOpacity={0.85}
-                        >
-                          <Ionicons name="create-outline" size={14} color="#ffffff" style={{ marginRight: 4 }} />
-                          <Text style={styles.logActionBtnText}>Edit</Text>
-                        </TouchableOpacity>
+                            }}
+                            activeOpacity={0.85}
+                          >
+                            <Ionicons name="create-outline" size={14} color="#ffffff" style={{ marginRight: 4 }} />
+                            <Text style={styles.logActionBtnText}>Edit</Text>
+                          </TouchableOpacity>
+                        </View>
                       )}
                     </View>
                   </View>
@@ -9389,7 +9422,7 @@ export default function DashboardScreen({ user, token, apiUrl, onLogout, onUserU
                     </View>
                     <View style={{ marginLeft: 10 }}>
                       <Text style={[styles.chamberHeaderTitle, { color: '#0f172a' }]}>
-                        Chamber - {getChamberDisplayNo(selectedChamber)}
+                        {selectedChamber.name || 'Chamber'}
                       </Text>
                       <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 'bold', marginTop: 2 }}>
                         Compliance: {selectedChamberType} | Target: {complianceTargetLabel}
@@ -14687,6 +14720,29 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#94a3b8',
     fontWeight: '500',
+  },
+  taskDoneActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  viewActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#93c5fd',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    minWidth: 72,
+    minHeight: 30,
+  },
+  viewActionBtnText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#003580',
   },
   logActionBtn: {
     flexDirection: 'row',

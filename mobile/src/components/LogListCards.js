@@ -153,7 +153,6 @@ export function ChamberTempLogCard({ item, onPress, style }) {
   const boxCount = resolveBoxCount(item);
   const dateLabel =
     String(item?.formatted_date || item?.entry_date || '').slice(0, 10) || '—';
-
   return (
     <TouchableOpacity
       style={[styles.card, style]}

@@ -390,6 +390,8 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
   const [todayLogs, setTodayLogs] = useState([]);
   const [warehouseTasks, setWarehouseTasks] = useState([]);
   const [homeOperators, setHomeOperators] = useState([]);
+  /** Calendar-range DO metrics for status cards only (Browse DO list uses homeOperators). */
+  const [homeRangeOperators, setHomeRangeOperators] = useState([]);
   const [homeCustomers, setHomeCustomers] = useState([]);
   const [homeCatalogWarehouses, setHomeCatalogWarehouses] = useState([]);
   const [homeCatalogClients, setHomeCatalogClients] = useState([]);
@@ -428,7 +430,8 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
   const warehouseCodeManualRef = useRef(false);
   const clientCodeManualRef = useRef(false);
   const [taskSummary, setTaskSummary] = useState(null);
-  const [homeListFocus, setHomeListFocus] = useState('ops'); // warehouses | customers | ops
+  const [homeListFocus, setHomeListFocus] = useState('warehouses'); // warehouses | customers | clients | ops
+  const [homeDoFilterKey, setHomeDoFilterKey] = useState(''); // '' = All DOs
   const [selectedDoProfile, setSelectedDoProfile] = useState(null);
   const [showDoMasterSetup, setShowDoMasterSetup] = useState(false);
   const [doProfileEditing, setDoProfileEditing] = useState(false);
@@ -483,9 +486,26 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
   });
+  const [homeDateFrom, setHomeDateFrom] = useState(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  });
+  const [homeDateTo, setHomeDateTo] = useState(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  });
+  const [homeCalDraftFrom, setHomeCalDraftFrom] = useState('');
+  const [homeCalDraftTo, setHomeCalDraftTo] = useState('');
   const [openFilter, setOpenFilter] = useState(null);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
   const [calendarPickMode, setCalendarPickMode] = useState('from');
+  const [calendarTarget, setCalendarTarget] = useState('logs'); // logs | home
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [warehouses, setWarehouses] = useState([]);
   const [clients, setClients] = useState([]);
@@ -590,6 +610,15 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     setDateTo(nextTo || 'All');
   };
 
+  const applyHomeDateRange = useCallback((from, to) => {
+    const today = toLocalYmd();
+    let nextFrom = from || today;
+    let nextTo = to || nextFrom;
+    if (nextTo < nextFrom) nextTo = nextFrom;
+    setHomeDateFrom(nextFrom);
+    setHomeDateTo(nextTo);
+  }, []);
+
   const clearAllFilters = () => {
     setWarehouseFilter('All');
     setClientFilter('All');
@@ -639,16 +668,25 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     return { ...row, _logType: 'chambers' };
   };
 
-  const openCalendar = (mode = 'from') => {
+  const openCalendar = (mode = 'from', target = 'logs') => {
     setOpenFilter(null);
+    setCalendarTarget(target);
+    const fromVal = target === 'home' ? homeDateFrom : dateFrom;
+    const toVal = target === 'home' ? homeDateTo : dateTo;
     const seed =
-      mode === 'to' && dateTo !== 'All'
-        ? dateTo
-        : dateFrom !== 'All'
-          ? dateFrom
+      mode === 'to' && toVal && toVal !== 'All'
+        ? toVal
+        : fromVal && fromVal !== 'All'
+          ? fromVal
           : toLocalYmd();
     setCalendarMonth(new Date(`${seed}T12:00:00`));
     setCalendarPickMode(mode);
+    if (target === 'home') {
+      const today = toLocalYmd();
+      setHomeCalDraftFrom(homeDateFrom || today);
+      setHomeCalDraftTo(homeDateTo || homeDateFrom || today);
+      setCalendarPickMode('from');
+    }
     setShowCalendarModal(true);
   };
 
@@ -664,11 +702,8 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     return days;
   };
 
-  const applyDoTaskOverviewPayload = useCallback((tasksData) => {
+  const parseDoTaskOperators = useCallback((tasksData) => {
     const warehouses = Array.isArray(tasksData?.warehouses) ? tasksData.warehouses : [];
-    setWarehouseTasks(warehouses);
-    setTaskSummary(tasksData?.summary || null);
-
     let doList = [];
     if (Array.isArray(tasksData?.operators) && tasksData.operators.length) {
       doList = tasksData.operators.map((op) => ({
@@ -699,8 +734,23 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
         });
       });
     }
-    setHomeOperators(doList);
+    return { warehouses, doList, summary: tasksData?.summary || null };
   }, []);
+
+  const applyDoTaskOverviewPayload = useCallback(
+    (tasksData, mode = 'list') => {
+      const { warehouses, doList, summary } = parseDoTaskOperators(tasksData);
+      if (mode === 'status' || mode === 'both') {
+        setTaskSummary(summary);
+        setHomeRangeOperators(doList);
+      }
+      if (mode === 'list' || mode === 'both') {
+        setWarehouseTasks(warehouses);
+        setHomeOperators(doList);
+      }
+    },
+    [parseDoTaskOperators]
+  );
 
   const loadHomeOverview = useCallback(async () => {
     if (!apiUrl || !token) return;
@@ -709,20 +759,32 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     setHomeError('');
     try {
       const today = toLocalYmd();
-      const taskQs = new URLSearchParams({ date: today });
-      const [statsRes, logsRes, tasksRes, customersRes, filterRes, operatorsRes, whMasterRes, clMasterRes] =
+      let from = homeDateFrom || today;
+      let to = homeDateTo || from;
+      if (to < from) {
+        const tmp = from;
+        from = to;
+        to = tmp;
+      }
+      const rangeQs = new URLSearchParams({ fromDate: from, toDate: to });
+      // Browse Data Operators list always uses today — calendar must not change that section.
+      const listQs = new URLSearchParams({ fromDate: today, toDate: today });
+      const [statsRes, logsRes, rangeTasksRes, listTasksRes, customersRes, filterRes, operatorsRes, whMasterRes, clMasterRes] =
         await Promise.all([
         fetch(`${apiUrl}/api/dashboard`, { headers: authHeaders }),
         fetch(
           `${apiUrl}/api/chamber-temp?${new URLSearchParams({
             page: '1',
             limit: '80',
-            fromDate: today,
-            toDate: today
+            fromDate: from,
+            toDate: to
           }).toString()}`,
           { headers: authHeaders }
         ),
-        fetch(`${apiUrl}/api/dashboard/do-task-overview?${taskQs.toString()}`, {
+        fetch(`${apiUrl}/api/dashboard/do-task-overview?${rangeQs.toString()}`, {
+          headers: authHeaders
+        }),
+        fetch(`${apiUrl}/api/dashboard/do-task-overview?${listQs.toString()}`, {
           headers: authHeaders
         }),
         fetch(`${apiUrl}/api/dashboard/customers`, { headers: authHeaders }),
@@ -749,7 +811,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
             : [];
         const scoped = items.filter((row) => {
           const d = String(row.formatted_date || row.entry_date || '').slice(0, 10);
-          return d === today;
+          return d >= from && d <= to;
         });
         setTodayLogs(scoped);
       } else {
@@ -757,24 +819,32 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
         setTodayLogs([]);
       }
 
-      const tasksData = await tasksRes.json().catch(() => ({}));
+      const rangeTasksData = await rangeTasksRes.json().catch(() => ({}));
+      const listTasksData = await listTasksRes.json().catch(() => ({}));
       const filterData = await filterRes.json().catch(() => ({}));
       const operatorsData = await operatorsRes.json().catch(() => ({}));
 
       if (requestId !== homeOverviewRequestIdRef.current) return;
 
-      if (!tasksRes.ok) {
-        console.warn('DO task overview failed:', tasksData.message || tasksRes.status);
-        setWarehouseTasks([]);
+      if (!rangeTasksRes.ok) {
+        console.warn('DO task range overview failed:', rangeTasksData.message || rangeTasksRes.status);
         setTaskSummary(null);
+        setHomeRangeOperators([]);
+      } else {
+        applyDoTaskOverviewPayload(rangeTasksData, 'status');
+      }
+
+      if (!listTasksRes.ok) {
+        console.warn('DO task list overview failed:', listTasksData.message || listTasksRes.status);
+        setWarehouseTasks([]);
         setHomeOperators([]);
       } else {
-        applyDoTaskOverviewPayload(tasksData);
+        applyDoTaskOverviewPayload(listTasksData, 'list');
       }
 
       if (
-        (!tasksRes.ok || !(Array.isArray(tasksData.operators) && tasksData.operators.length)) &&
-        !(Array.isArray(tasksData.warehouses) && tasksData.warehouses.some((w) => (w.operators || []).length)) &&
+        (!listTasksRes.ok || !(Array.isArray(listTasksData.operators) && listTasksData.operators.length)) &&
+        !(Array.isArray(listTasksData.warehouses) && listTasksData.warehouses.some((w) => (w.operators || []).length)) &&
         operatorsRes.ok &&
         Array.isArray(operatorsData.operators) &&
         operatorsData.operators.length
@@ -799,7 +869,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
       }
 
       if (
-        (!tasksRes.ok || !(Array.isArray(tasksData.warehouses) && tasksData.warehouses.length)) &&
+        (!listTasksRes.ok || !(Array.isArray(listTasksData.warehouses) && listTasksData.warehouses.length)) &&
         filterRes.ok
       ) {
         const filterWarehouses = Array.isArray(filterData?.warehouses) ? filterData.warehouses : [];
@@ -874,6 +944,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
       setStats(null);
       setWarehouseTasks([]);
       setHomeOperators([]);
+      setHomeRangeOperators([]);
       setHomeCustomers([]);
       setHomeCatalogWarehouses([]);
       setHomeCatalogClients([]);
@@ -882,7 +953,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
       setHomeLoading(false);
       setHomeRefreshing(false);
     }
-  }, [apiUrl, token, authHeaders, formatClockTime, applyDoTaskOverviewPayload]);
+  }, [apiUrl, token, authHeaders, formatClockTime, applyDoTaskOverviewPayload, homeDateFrom, homeDateTo]);
 
 
   const loadHomeOverviewRef = useRef(loadHomeOverview);
@@ -1461,7 +1532,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     if (activeTab === 'Dashboard' || activeTab === 'Home') {
       loadHomeOverviewRef.current();
     }
-  }, [activeTab]);
+  }, [activeTab, homeDateFrom, homeDateTo]);
 
   useEffect(() => {
     setLogPage(1);
@@ -1705,6 +1776,8 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
       Number(t.warehouses) ||
       warehouseTasks.length ||
       0;
+    const clientTotal =
+      homeCatalogClients.filter(isCatalogActive).length || Number(t.clients) || 0;
     return [
       {
         key: 'warehouses',
@@ -1721,6 +1794,13 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
         color: '#059669'
       },
       {
+        key: 'clients',
+        label: 'Clients',
+        value: clientTotal,
+        icon: 'storefront-outline',
+        color: '#7c3aed'
+      },
+      {
         key: 'ops',
         label: 'DOs',
         value: homeOperators.length || Number(t.operators) || 0,
@@ -1728,11 +1808,19 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
         color: '#003580'
       }
     ];
-  }, [taskSummary, warehouseTasks, homeCustomers, homeOperators, homeCatalogWarehouses]);
+  }, [
+    taskSummary,
+    warehouseTasks,
+    homeCustomers,
+    homeOperators,
+    homeCatalogWarehouses,
+    homeCatalogClients
+  ]);
 
   const homeListTitle = useMemo(() => {
     if (homeListFocus === 'warehouses') return 'Warehouses';
     if (homeListFocus === 'customers') return 'Customers';
+    if (homeListFocus === 'clients') return 'Clients';
     return 'Data Operators';
   }, [homeListFocus]);
 
@@ -1743,8 +1831,16 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     if (homeListFocus === 'customers') {
       return 'Portal logins · tap to edit · add / delete';
     }
+    if (homeListFocus === 'clients') {
+      return 'Catalog clients · tap to edit · add / delete';
+    }
     return "Today's tasks · Morning & Evening";
   }, [homeListFocus]);
+
+  const activeCatalogClients = useMemo(
+    () => (homeCatalogClients || []).filter(isCatalogActive),
+    [homeCatalogClients]
+  );
 
   const activeCatalogWarehouses = useMemo(
     () => (homeCatalogWarehouses || []).filter(isCatalogActive),
@@ -1793,35 +1889,54 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     return rows;
   }, [homeCatalogWarehouses, warehouseTasks]);
 
-  const todayOps = useMemo(() => {
-    const t = taskSummary || {};
-    return {
-      completed: Number(t.completed) || 0,
-      pending: Number(t.pending) || 0,
-      overdue: Number(t.overdue) || 0,
-      morningDone: Number(t.morning_completed) || 0,
-      morningExpected: Number(t.morning_expected) || 0,
-      eveningDone: Number(t.evening_completed) || 0,
-      eveningExpected: Number(t.evening_expected) || 0,
-      totalInward: Number(t.total_inward) || 0,
-      totalOutward: Number(t.total_outward) || 0,
-      todayInward: Number(t.today_inward) || 0,
-      todayOutward: Number(t.today_outward) || 0
-    };
-  }, [taskSummary]);
-
   const todayLabel = useMemo(() => {
-    try {
-      return new Date().toLocaleDateString('en-IN', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric'
-      });
-    } catch (_) {
-      return toLocalYmd();
+    const today = toLocalYmd();
+    const formatDay = (ymd) => {
+      try {
+        return new Date(`${ymd}T12:00:00`).toLocaleDateString('en-IN', {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+      } catch (_) {
+        return ymd;
+      }
+    };
+    if (homeDateFrom === today && homeDateTo === today) {
+      try {
+        return new Date().toLocaleDateString('en-IN', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+      } catch (_) {
+        return today;
+      }
     }
-  }, []);
+    if (homeDateFrom === homeDateTo) return formatDay(homeDateFrom);
+    return `${formatDay(homeDateFrom)} → ${formatDay(homeDateTo)}`;
+  }, [homeDateFrom, homeDateTo]);
+
+  const homeDatePreset = useMemo(() => {
+    const today = toLocalYmd();
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 6);
+    const sevenFrom = toLocalYmd(start);
+    const sevenTo = toLocalYmd(end);
+    if (homeDateFrom === today && homeDateTo === today) return 'today';
+    if (homeDateFrom === sevenFrom && homeDateTo === sevenTo) return '7days';
+    return null;
+  }, [homeDateFrom, homeDateTo]);
+
+  const homeRangeIsToday = homeDatePreset === 'today';
+
+  const homeDateChipLabel = useMemo(() => {
+    if (homeDateFrom === homeDateTo) return formatDateLabel(homeDateFrom);
+    return `${formatDateLabel(homeDateFrom)} → ${formatDateLabel(homeDateTo)}`;
+  }, [homeDateFrom, homeDateTo]);
 
   const logDatePreset = useMemo(() => {
     const today = toLocalYmd();
@@ -1912,6 +2027,86 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     });
     return flat;
   }, [homeOperators, warehouseTasks]);
+
+  const homeDoKeyOf = useCallback((op) => {
+    if (!op) return '';
+    if (op.email) return String(op.email).trim().toLowerCase();
+    if (op.id != null) return `id:${op.id}`;
+    return String(op.name || op.full_name || '').trim().toLowerCase();
+  }, []);
+
+  const homeDoOptions = useMemo(() => {
+    const seen = new Set();
+    const opts = [];
+    (derivedHomeOperators || []).forEach((op) => {
+      const key = homeDoKeyOf(op);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      opts.push({
+        key,
+        label: op.name || op.full_name || (op.email ? String(op.email).split('@')[0] : 'DO'),
+        warehouse: op.warehouse_name || '',
+        op
+      });
+    });
+    opts.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+    return opts;
+  }, [derivedHomeOperators, homeDoKeyOf]);
+
+  const filteredHomeOperators = useMemo(() => {
+    if (!homeDoFilterKey) return derivedHomeOperators;
+    return derivedHomeOperators.filter((op) => homeDoKeyOf(op) === homeDoFilterKey);
+  }, [derivedHomeOperators, homeDoFilterKey, homeDoKeyOf]);
+
+  /** Status cards only — calendar range metrics (not Browse DO list). */
+  const filteredRangeOperators = useMemo(() => {
+    if (!homeDoFilterKey) return homeRangeOperators;
+    return (homeRangeOperators || []).filter((op) => homeDoKeyOf(op) === homeDoFilterKey);
+  }, [homeRangeOperators, homeDoFilterKey, homeDoKeyOf]);
+
+  const homeDoFilterLabel = useMemo(() => {
+    if (!homeDoFilterKey) return 'All';
+    const hit = homeDoOptions.find((o) => o.key === homeDoFilterKey);
+    return hit?.label || 'All';
+  }, [homeDoFilterKey, homeDoOptions]);
+
+  const todayOps = useMemo(() => {
+    if (homeDoFilterKey) {
+      const list = filteredRangeOperators;
+      const sum = (field) => list.reduce((acc, op) => acc + (Number(op[field]) || 0), 0);
+      return {
+        completed: sum('completed'),
+        pending: sum('pending'),
+        overdue: sum('overdue'),
+        morningDone: sum('morning_completed'),
+        morningExpected: sum('morning_expected'),
+        eveningDone: sum('evening_completed'),
+        eveningExpected: sum('evening_expected'),
+        totalInward: sum('today_inward'),
+        totalOutward: sum('today_outward'),
+        todayInward: sum('today_inward'),
+        todayOutward: sum('today_outward')
+      };
+    }
+    const t = taskSummary || {};
+    const rangeIn =
+      Number(t.today_inward) || Number(t.range_inward) || 0;
+    const rangeOut =
+      Number(t.today_outward) || Number(t.range_outward) || 0;
+    return {
+      completed: Number(t.completed) || 0,
+      pending: Number(t.pending) || 0,
+      overdue: Number(t.overdue) || 0,
+      morningDone: Number(t.morning_completed) || 0,
+      morningExpected: Number(t.morning_expected) || 0,
+      eveningDone: Number(t.evening_completed) || 0,
+      eveningExpected: Number(t.evening_expected) || 0,
+      totalInward: rangeIn,
+      totalOutward: rangeOut,
+      todayInward: rangeIn,
+      todayOutward: rangeOut
+    };
+  }, [taskSummary, homeDoFilterKey, filteredRangeOperators]);
 
   const formatScopeList = (value) => {
     if (value == null || String(value).trim() === '') return 'All';
@@ -3157,6 +3352,12 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     if (openFilter === 'reportClient') {
       setReportClientFilter(opt);
       setOpenFilter(null);
+      return;
+    }
+    if (openFilter === 'homeDo') {
+      if (!opt || opt === 'All' || opt === 'All DOs') setHomeDoFilterKey('');
+      else setHomeDoFilterKey(String(opt));
+      setOpenFilter(null);
     }
   };
 
@@ -3762,19 +3963,76 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                 <>
                   <View style={styles.dashHero}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.dashHeroEyebrow}>DO monitor · daily tasks</Text>
-                      <Text style={styles.dashHeroTitle}>Today's status</Text>
+                      <Text style={styles.dashHeroEyebrow}>Catalog · accounts</Text>
+                      <Text style={styles.dashHeroTitle}>Warehouses & access</Text>
                       <Text style={styles.dashHeroDate}>
                         {todayLabel}
                         {homeLastUpdated ? ` · Updated ${homeLastUpdated}` : ''}
                       </Text>
                     </View>
                     <View style={styles.dashHeroIcon}>
-                      <Ionicons name="pulse-outline" size={18} color="#003580" />
+                      <Ionicons name="business-outline" size={18} color="#003580" />
                     </View>
                   </View>
 
-                  <View style={styles.todayOpsCard}>
+                  <Text style={styles.dashSectionLbl}>Browse by category</Text>
+                  <View style={styles.statsGrid}>
+                    {overviewCards.map((card) => {
+                      const active = homeListFocus === card.key;
+                      return (
+                        <Pressable
+                          key={card.key}
+                          style={[styles.statCard, active && styles.statCardActive]}
+                          onPress={() => {
+                            setSelectedDoProfile(null);
+                            setHomeListFocus(card.key);
+                          }}
+                          hitSlop={0}
+                        >
+                        <View style={[styles.statIcon, { backgroundColor: `${card.color}18` }]}>
+                          <Ionicons name={card.icon} size={12} color={card.color} />
+                        </View>
+                        <Text style={[styles.statValue, { color: card.color }]}>{card.value}</Text>
+                        <Text style={styles.statLabel} numberOfLines={1}>
+                          {card.label}
+                        </Text>
+                    </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <View style={styles.homeFilterPanel}>
+                    <View style={styles.filterRow}>
+                      <TouchableOpacity
+                        style={[styles.filterChip, styles.filterChipActive]}
+                        onPress={() => openCalendar('from', 'home')}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.filterChipLabel}>Date</Text>
+                        <Text style={styles.filterChipValue} numberOfLines={1}>
+                          {homeDateChipLabel}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.filterChip,
+                          homeDoFilterKey ? styles.filterChipActive : null
+                        ]}
+                        onPress={() => setOpenFilter(openFilter === 'homeDo' ? null : 'homeDo')}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.filterChipLabel}>DO</Text>
+                        <View style={styles.homeDoChipValueRow}>
+                          <Text style={[styles.filterChipValue, { flex: 1 }]} numberOfLines={1}>
+                            {homeDoFilterLabel}
+                          </Text>
+                          <Ionicons name="chevron-down" size={12} color="#64748b" />
+                        </View>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View style={[styles.todayOpsCard, { marginTop: 10 }]}>
                     <View style={styles.todayOpsCell}>
                       <Text style={[styles.todayOpsNum, { color: '#059669' }]}>
                         {todayOps.morningDone}
@@ -3804,28 +4062,18 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                       <Text style={[styles.todayOpsNum, { color: '#1967d2' }]}>
                         {todayOps.totalInward}
                       </Text>
-                      <Text style={styles.todayOpsLbl}>Total In</Text>
+                      <Text style={styles.todayOpsLbl}>
+                        {homeRangeIsToday ? 'Total In' : 'Period In'}
+                      </Text>
                     </View>
                     <View style={styles.todayOpsDivider} />
                     <View style={styles.todayOpsCell}>
                       <Text style={[styles.todayOpsNum, { color: '#e37400' }]}>
                         {todayOps.totalOutward}
                       </Text>
-                      <Text style={styles.todayOpsLbl}>Total Out</Text>
-                    </View>
-                    <View style={styles.todayOpsDivider} />
-                    <View style={styles.todayOpsCell}>
-                      <Text style={[styles.todayOpsNum, { color: '#137333' }]}>
-                        {todayOps.todayInward}
+                      <Text style={styles.todayOpsLbl}>
+                        {homeRangeIsToday ? 'Total Out' : 'Period Out'}
                       </Text>
-                      <Text style={styles.todayOpsLbl}>Today In</Text>
-                    </View>
-                    <View style={styles.todayOpsDivider} />
-                    <View style={styles.todayOpsCell}>
-                      <Text style={[styles.todayOpsNum, { color: '#7627bb' }]}>
-                        {todayOps.todayOutward}
-                      </Text>
-                      <Text style={styles.todayOpsLbl}>Today Out</Text>
                     </View>
                   </View>
 
@@ -3849,32 +4097,6 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                     </TouchableOpacity>
                   ) : null}
 
-                  <Text style={styles.dashSectionLbl}>Browse by category</Text>
-                  <View style={styles.statsGrid}>
-                    {overviewCards.map((card) => {
-                      const active = homeListFocus === card.key;
-                      return (
-                        <Pressable
-                          key={card.key}
-                          style={[styles.statCard, active && styles.statCardActive]}
-                          onPress={() => {
-                            setSelectedDoProfile(null);
-                            setHomeListFocus(card.key);
-                          }}
-                          hitSlop={0}
-                        >
-                        <View style={[styles.statIcon, { backgroundColor: `${card.color}18` }]}>
-                          <Ionicons name={card.icon} size={12} color={card.color} />
-                        </View>
-                        <Text style={[styles.statValue, { color: card.color }]}>{card.value}</Text>
-                        <Text style={styles.statLabel} numberOfLines={1}>
-                          {card.label}
-                        </Text>
-                    </Pressable>
-                      );
-                    })}
-                  </View>
-
                   <View style={styles.doSection}>
                     <View style={styles.doOverviewCard}>
                       <View style={styles.doOverviewHead}>
@@ -3882,13 +4104,17 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                           <Text style={styles.doOverviewTitle}>{homeListTitle}</Text>
                           <Text style={styles.doOverviewSub}>{homeListSubtitle}</Text>
                         </View>
-                        {homeListFocus === 'customers' || homeListFocus === 'warehouses' ? (
+                        {homeListFocus === 'customers' ||
+                        homeListFocus === 'warehouses' ||
+                        homeListFocus === 'clients' ? (
                           <TouchableOpacity
                             style={styles.customerAddBtn}
                             onPress={
                               homeListFocus === 'warehouses'
                                 ? openCreateWarehouse
-                                : openCreateCustomer
+                                : homeListFocus === 'clients'
+                                  ? openCreateClient
+                                  : openCreateCustomer
                             }
                             activeOpacity={0.85}
                           >
@@ -4001,10 +4227,55 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                             </View>
                           ))
                         )
-                      ) : derivedHomeOperators.length === 0 ? (
-                        <Text style={styles.cardHintSm}>No DO operators yet.</Text>
+                      ) : homeListFocus === 'clients' ? (
+                        activeCatalogClients.length === 0 ? (
+                          <Text style={styles.cardHintSm}>No clients in catalog yet.</Text>
+                        ) : (
+                          activeCatalogClients.map((cl, idx) => (
+                            <View
+                              key={String(cl.id || cl.client_code || idx)}
+                              style={[styles.doOverviewRow, idx > 0 && styles.doOverviewRowBorder]}
+                            >
+                              <View
+                                style={[styles.doOverviewDotSm, { backgroundColor: '#7c3aed' }]}
+                              />
+                              <Pressable
+                                style={{ flex: 1, minWidth: 0 }}
+                                onPress={() => openEditClient(cl)}
+                                hitSlop={0}
+                              >
+                                <Text style={styles.doOverviewWh} numberOfLines={1}>
+                                  {cl.client_name || 'Client'}
+                                </Text>
+                                <Text style={styles.doOverviewMeta} numberOfLines={2}>
+                                  {cl.client_code || 'No code'}
+                                  {cl.warehouse_name ? ` · ${cl.warehouse_name}` : ''}
+                                  {cl.warehouse_code ? ` · ${cl.warehouse_code}` : ''}
+                                </Text>
+                              </Pressable>
+                              <Pressable
+                                style={styles.customerIconBtn}
+                                onPress={() => openEditClient(cl)}
+                                hitSlop={0}
+                              >
+                                <Ionicons name="create-outline" size={16} color="#003580" />
+                              </Pressable>
+                              <Pressable
+                                style={styles.customerIconBtnDanger}
+                                onPress={() => deleteClientCatalog(cl)}
+                                hitSlop={0}
+                              >
+                                <Ionicons name="trash-outline" size={16} color="#dc2626" />
+                              </Pressable>
+                            </View>
+                          ))
+                        )
+                      ) : filteredHomeOperators.length === 0 ? (
+                        <Text style={styles.cardHintSm}>
+                          {homeDoFilterKey ? 'No matching DO.' : 'No DO operators yet.'}
+                        </Text>
                       ) : (
-                        derivedHomeOperators.map((op, idx) => {
+                        filteredHomeOperators.map((op, idx) => {
                           const overdue = Number(op.overdue) || 0;
                           const pending = Number(op.pending) || 0;
                           const mornDone = Number(op.morning_completed) || 0;
@@ -4149,36 +4420,92 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                 ? 'Select warehouse'
                 : openFilter === 'chamber'
                   ? 'Select chamber'
-                : 'Select client'}
+                  : openFilter === 'homeDo'
+                    ? 'Select DO'
+                    : 'Select client'}
             </Text>
             <ScrollView style={{ maxHeight: 320 }}>
-              {(openFilter === 'warehouse'
-                ? warehouseOptions
-                : openFilter === 'chamber'
-                  ? chamberOptions
-                : openFilter === 'reportWarehouse'
-                  ? reportWarehouseOptions
-                  : openFilter === 'reportClient'
-                    ? reportClientOptions
-                    : clientOptions
-              ).map((opt) => (
-                <TouchableOpacity
-                  key={opt}
-                  style={styles.sheetItem}
-                  onPress={() => pickFilterOption(opt)}
-                >
-                  <Text style={styles.sheetItemText}>{opt}</Text>
-                </TouchableOpacity>
-              ))}
+              {openFilter === 'homeDo' ? (
+                <>
+                  <TouchableOpacity
+                    style={styles.sheetItem}
+                    onPress={() => pickFilterOption('All')}
+                  >
+                    <Text
+                      style={[
+                        styles.sheetItemText,
+                        !homeDoFilterKey && styles.sheetItemTextActive
+                      ]}
+                    >
+                      All
+                    </Text>
+                  </TouchableOpacity>
+                  {homeDoOptions.map((opt) => (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={styles.sheetItem}
+                      onPress={() => pickFilterOption(opt.key)}
+                    >
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text
+                          style={[
+                            styles.sheetItemText,
+                            homeDoFilterKey === opt.key && styles.sheetItemTextActive
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {opt.label}
+                        </Text>
+                        {opt.warehouse ? (
+                          <Text style={styles.sheetItemSub} numberOfLines={1}>
+                            {opt.warehouse}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </>
+              ) : (
+                (openFilter === 'warehouse'
+                  ? warehouseOptions
+                  : openFilter === 'chamber'
+                    ? chamberOptions
+                    : openFilter === 'reportWarehouse'
+                      ? reportWarehouseOptions
+                      : openFilter === 'reportClient'
+                        ? reportClientOptions
+                        : clientOptions
+                ).map((opt) => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={styles.sheetItem}
+                    onPress={() => pickFilterOption(opt)}
+                  >
+                    <Text style={styles.sheetItemText}>{opt}</Text>
+                  </TouchableOpacity>
+                ))
+              )}
             </ScrollView>
           </View>
         </TouchableOpacity>
       </Modal>
 
-      {/* Calendar */}
-      <Modal visible={showCalendarModal} transparent animationType="fade" onRequestClose={() => setShowCalendarModal(false)}>
-        <View style={styles.sheetOverlay}>
+      {/* Calendar — bottom sheet */}
+      <Modal
+        visible={showCalendarModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCalendarModal(false)}
+      >
+        <View style={styles.detailOverlay}>
+          <TouchableOpacity
+            style={styles.calendarDismissArea}
+            activeOpacity={1}
+            pressBorder={false}
+            onPress={() => setShowCalendarModal(false)}
+          />
           <View style={styles.calendarSheet}>
+            <View style={styles.doProfileHandle} />
             <View style={styles.calendarHead}>
               <TouchableOpacity
                 onPress={() =>
@@ -4187,9 +4514,11 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
               >
                 <Ionicons name="chevron-back" size={22} color="#003580" />
               </TouchableOpacity>
-              <Text style={styles.calendarTitle}>
-                {calendarMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
-              </Text>
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={styles.calendarTitle}>
+                  {calendarMonth.toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
+                </Text>
+              </View>
               <TouchableOpacity
                 onPress={() =>
                   setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))
@@ -4198,20 +4527,97 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                 <Ionicons name="chevron-forward" size={22} color="#003580" />
               </TouchableOpacity>
             </View>
+            {calendarTarget === 'home' ? (
+              <View style={styles.calendarFromToRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.filterChip,
+                    styles.calendarFromToChip,
+                    calendarPickMode === 'from' && styles.filterChipActive
+                  ]}
+                  onPress={() => {
+                    setCalendarPickMode('from');
+                    const seed = homeCalDraftFrom || homeDateFrom || toLocalYmd();
+                    setCalendarMonth(new Date(`${seed}T12:00:00`));
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.filterChipLabel}>From</Text>
+                  <Text style={styles.filterChipValue} numberOfLines={1}>
+                    {formatDateLabel(homeCalDraftFrom || homeDateFrom)}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.filterChip,
+                    styles.calendarFromToChip,
+                    calendarPickMode === 'to' && styles.filterChipActive
+                  ]}
+                  onPress={() => {
+                    setCalendarPickMode('to');
+                    const seed = homeCalDraftTo || homeDateTo || homeCalDraftFrom || toLocalYmd();
+                    setCalendarMonth(new Date(`${seed}T12:00:00`));
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.filterChipLabel}>To</Text>
+                  <Text style={styles.filterChipValue} numberOfLines={1}>
+                    {formatDateLabel(homeCalDraftTo || homeDateTo)}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
             <View style={styles.calendarGrid}>
               {getCalendarDays(calendarMonth).map((day, idx) => {
                 if (!day) return <View key={`e-${idx}`} style={styles.calCell} />;
                 const ymd = toLocalYmd(day);
+                const activeFrom =
+                  calendarTarget === 'home' ? homeCalDraftFrom || homeDateFrom : dateFrom;
+                const activeTo =
+                  calendarTarget === 'home' ? homeCalDraftTo || homeDateTo : dateTo;
                 const selected =
-                  (calendarPickMode === 'from' && dateFrom === ymd) ||
-                  (calendarPickMode === 'to' && dateTo === ymd);
+                  calendarTarget === 'home'
+                    ? calendarPickMode === 'from'
+                      ? activeFrom === ymd
+                      : activeTo === ymd
+                    : (calendarPickMode === 'from' && activeFrom === ymd) ||
+                      (calendarPickMode === 'to' && activeTo === ymd);
+                const inRange =
+                  activeFrom &&
+                  activeTo &&
+                  activeFrom !== 'All' &&
+                  activeTo !== 'All' &&
+                  ymd >= activeFrom &&
+                  ymd <= activeTo;
                 return (
                   <TouchableOpacity
                     key={ymd}
-                    style={[styles.calCell, selected && styles.calCellActive]}
+                    style={[
+                      styles.calCell,
+                      inRange && styles.calCellInRange,
+                      selected && styles.calCellActive
+                    ]}
                     onPress={() => {
-                      if (calendarPickMode === 'from') applyDateRange(ymd, dateTo === 'All' ? ymd : dateTo);
-                      else applyDateRange(dateFrom === 'All' ? ymd : dateFrom, ymd);
+                      if (calendarTarget === 'home') {
+                        if (calendarPickMode === 'from') {
+                          let nextTo = homeCalDraftTo || ymd;
+                          if (nextTo < ymd) nextTo = ymd;
+                          setHomeCalDraftFrom(ymd);
+                          setHomeCalDraftTo(nextTo);
+                          return;
+                        }
+                        let nextFrom = homeCalDraftFrom || ymd;
+                        let nextTo = ymd;
+                        if (nextTo < nextFrom) nextFrom = nextTo;
+                        setHomeCalDraftFrom(nextFrom);
+                        setHomeCalDraftTo(nextTo);
+                        return;
+                      }
+                      if (calendarPickMode === 'from') {
+                        applyDateRange(ymd, dateTo === 'All' ? ymd : dateTo);
+                      } else {
+                        applyDateRange(dateFrom === 'All' ? ymd : dateFrom, ymd);
+                      }
                       setShowCalendarModal(false);
                     }}
                   >
@@ -4222,9 +4628,43 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                 );
               })}
             </View>
-            <TouchableOpacity style={styles.retryBtn} onPress={() => setShowCalendarModal(false)}>
-              <Text style={styles.retryText}>Close</Text>
-            </TouchableOpacity>
+            {calendarTarget === 'home' ? (
+              <View style={styles.calendarActionRow}>
+                <TouchableOpacity
+                  style={[styles.calendarActionBtn, styles.calendarActionClear]}
+                  onPress={() => {
+                    const t = toLocalYmd();
+                    setHomeCalDraftFrom(t);
+                    setHomeCalDraftTo(t);
+                    setCalendarPickMode('from');
+                    setHomeDoFilterKey('');
+                    applyHomeDateRange(t, t);
+                    setShowCalendarModal(false);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.calendarActionClearText}>Clear</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.calendarActionBtn, styles.calendarActionApply]}
+                  onPress={() => {
+                    applyHomeDateRange(
+                      homeCalDraftFrom || toLocalYmd(),
+                      homeCalDraftTo || homeCalDraftFrom || toLocalYmd()
+                    );
+                    setShowCalendarModal(false);
+                    setCalendarPickMode('from');
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.calendarActionApplyText}>Apply</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.retryBtn} onPress={() => setShowCalendarModal(false)}>
+                <Text style={styles.retryText}>Close</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </Modal>
@@ -6213,6 +6653,24 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     overflow: 'hidden'
   },
+  homeFilterPanel: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 6,
+    marginTop: 4,
+    marginBottom: 4
+  },
+  homeRangeHint: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '600',
+    marginBottom: 8,
+    marginTop: -2
+  },
   todayOpsCell: { flex: 1, alignItems: 'center', paddingVertical: 8 },
   todayOpsDivider: { width: 1, backgroundColor: '#e2e8f0' },
   todayOpsNum: { fontSize: 16, fontWeight: '800', lineHeight: 20 },
@@ -6975,12 +7433,25 @@ const styles = StyleSheet.create({
   sheetTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a', marginBottom: 10 },
   sheetItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
   sheetItemText: { fontSize: 14, color: '#0f172a', fontWeight: '600' },
+  sheetItemTextActive: { color: '#003580', fontWeight: '800' },
+  sheetItemSub: { fontSize: 11, color: '#94a3b8', fontWeight: '600', marginTop: 2 },
+  homeDoChipValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 1
+  },
   calendarSheet: {
     backgroundColor: '#fff',
-    marginHorizontal: 16,
-    marginBottom: 40,
-    borderRadius: 16,
-    padding: 16
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 16,
+    maxHeight: '78%'
+  },
+  calendarDismissArea: {
+    flex: 1
   },
   calendarHead: {
     flexDirection: 'row',
@@ -6989,6 +7460,51 @@ const styles = StyleSheet.create({
     marginBottom: 12
   },
   calendarTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
+  calendarSubHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
+    marginTop: 2
+  },
+  calendarActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10
+  },
+  calendarFromToRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10
+  },
+  calendarFromToChip: {
+    flex: 1,
+    minWidth: 0
+  },
+  calendarActionBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10
+  },
+  calendarActionClear: {
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0'
+  },
+  calendarActionClearText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748b'
+  },
+  calendarActionApply: {
+    backgroundColor: '#003580'
+  },
+  calendarActionApplyText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#fff'
+  },
   calendarSubTitle: {
     textAlign: 'center',
     fontSize: 12,
@@ -7004,6 +7520,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center'
   },
   calCellActive: { backgroundColor: '#003580', borderRadius: 999 },
+  calCellInRange: { backgroundColor: '#dbeafe' },
   calCellDisabled: { opacity: 0.35 },
   calCellText: { fontSize: 13, color: '#334155', fontWeight: '600' },
   calCellTextActive: { color: '#fff' },
