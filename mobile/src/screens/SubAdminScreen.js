@@ -430,7 +430,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
   const warehouseCodeManualRef = useRef(false);
   const clientCodeManualRef = useRef(false);
   const [taskSummary, setTaskSummary] = useState(null);
-  const [homeListFocus, setHomeListFocus] = useState('warehouses'); // warehouses | customers | clients | ops
+  const [homeListFocus, setHomeListFocus] = useState('ops'); // ops | warehouses | customers | clients
   const [homeDoFilterKey, setHomeDoFilterKey] = useState(''); // '' = All DOs
   const [selectedDoProfile, setSelectedDoProfile] = useState(null);
   const [showDoMasterSetup, setShowDoMasterSetup] = useState(false);
@@ -444,6 +444,10 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
   });
   const [doProfileAssignments, setDoProfileAssignments] = useState([]);
   const [doProfileAssignLoading, setDoProfileAssignLoading] = useState(false);
+  const [doClientListModal, setDoClientListModal] = useState({
+    visible: false,
+    mode: 'active' // active | inactive
+  });
   const [savedPopup, setSavedPopup] = useState({
     visible: false,
     title: 'Changes saved',
@@ -1780,6 +1784,13 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
       homeCatalogClients.filter(isCatalogActive).length || Number(t.clients) || 0;
     return [
       {
+        key: 'ops',
+        label: 'DOs',
+        value: homeOperators.length || Number(t.operators) || 0,
+        icon: 'people-outline',
+        color: '#003580'
+      },
+      {
         key: 'warehouses',
         label: 'Warehouses',
         value: warehouseTotal,
@@ -1799,13 +1810,6 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
         value: clientTotal,
         icon: 'storefront-outline',
         color: '#7c3aed'
-      },
-      {
-        key: 'ops',
-        label: 'DOs',
-        value: homeOperators.length || Number(t.operators) || 0,
-        icon: 'people-outline',
-        color: '#003580'
       }
     ];
   }, [
@@ -2877,15 +2881,17 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
       );
       return;
     }
+    const chamberLimit = parseInt(doProfileForm.chamber_limit, 10);
+    if (!Number.isFinite(chamberLimit) || chamberLimit < 1) {
+      Alert.alert('Chamber Limit', 'Enter a valid chamber limit (1 or more).');
+      return;
+    }
     const payload = {
       full_name: doProfileForm.full_name.trim(),
       email: selectedDoProfile.email,
       phone_no: doProfileForm.phone_no.trim(),
       warehouse_name: doProfileForm.warehouse_name.trim(),
-      chamber_limit:
-        selectedDoProfile.chamber_limit != null
-          ? Number(selectedDoProfile.chamber_limit)
-          : 4
+      chamber_limit: chamberLimit
     };
     if (!payload.full_name || !payload.phone_no || !payload.warehouse_name) {
       Alert.alert('Missing fields', 'Name, phone and warehouse are required.');
@@ -2930,6 +2936,25 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
     showSavedChanges
   ]);
 
+  const formatAssignmentDate = useCallback((value) => {
+    if (value == null || String(value).trim() === '') return null;
+    const raw = String(value).trim();
+    const dt = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+    if (Number.isNaN(dt.getTime())) {
+      const slice = raw.slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(slice)) {
+        const [y, m, d] = slice.split('-');
+        return `${d}/${m}/${y}`;
+      }
+      return raw.slice(0, 10);
+    }
+    return dt.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  }, []);
+
   const doProfileChamberGroups = useMemo(() => {
     const map = new Map();
     doProfileAssignments.forEach((a) => {
@@ -2954,14 +2979,73 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
           s === 'false'
         );
       })();
-      const label = a.client_name || a.client_code || 'Client';
-      if (inactive) map.get(key).deactive.push(label);
-      else map.get(key).active.push(label);
+      const entry = {
+        name: a.client_name || a.client_code || 'Client',
+        assignedAt: a.created_at || a.assigned_at || null,
+        disabledAt: inactive ? a.updated_at || a.disabled_at || a.deactivated_at || null : null
+      };
+      if (inactive) map.get(key).deactive.push(entry);
+      else map.get(key).active.push(entry);
     });
     return Array.from(map.values()).sort((a, b) =>
       String(a.name).localeCompare(String(b.name), undefined, { numeric: true })
     );
   }, [doProfileAssignments]);
+
+  const doProfileClientCounts = useMemo(() => {
+    let active = 0;
+    let notActive = 0;
+    doProfileChamberGroups.forEach((ch) => {
+      active += Array.isArray(ch.active) ? ch.active.length : 0;
+      notActive += Array.isArray(ch.deactive) ? ch.deactive.length : 0;
+    });
+    return { active, notActive, total: active + notActive };
+  }, [doProfileChamberGroups]);
+
+  const doProfileClientLists = useMemo(() => {
+    const active = [];
+    const inactive = [];
+    doProfileChamberGroups.forEach((ch) => {
+      (ch.active || []).forEach((entry) => {
+        const name = typeof entry === 'string' ? entry : entry?.name;
+        if (!name) return;
+        active.push({
+          key: `a-${ch.id}-${name}`,
+          client: name,
+          chamber: ch.name,
+          type: ch.type,
+          status: 'active',
+          assignedAt: typeof entry === 'object' ? entry.assignedAt : null,
+          disabledAt: null
+        });
+      });
+      (ch.deactive || []).forEach((entry) => {
+        const name = typeof entry === 'string' ? entry : entry?.name;
+        if (!name) return;
+        inactive.push({
+          key: `i-${ch.id}-${name}`,
+          client: name,
+          chamber: ch.name,
+          type: ch.type,
+          status: 'inactive',
+          assignedAt: typeof entry === 'object' ? entry.assignedAt : null,
+          disabledAt: typeof entry === 'object' ? entry.disabledAt : null
+        });
+      });
+    });
+    const byName = (a, b) =>
+      String(a.client).localeCompare(String(b.client), undefined, { sensitivity: 'base' });
+    active.sort(byName);
+    inactive.sort(byName);
+    return { active, inactive };
+  }, [doProfileChamberGroups]);
+
+  const openDoClientList = useCallback((mode) => {
+    setDoClientListModal({
+      visible: true,
+      mode: mode === 'inactive' ? 'inactive' : 'active'
+    });
+  }, []);
 
   const dosForWarehouse = useCallback(
     (wh) => {
@@ -5732,6 +5816,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
               </View>
               <TouchableOpacity
                 onPress={() => {
+                  setDoClientListModal({ visible: false, mode: 'active' });
                   setDoProfileEditing(false);
                   setSelectedDoProfile(null);
                 }}
@@ -5756,6 +5841,41 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                     {selectedDoProfile.name}
                   </Text>
                   <Text style={styles.doProfileHeroRole}>Data Operator</Text>
+                  <Text style={styles.doProfileHeroRole}>
+                    Chambers assigned:{' '}
+                    {doProfileAssignLoading
+                      ? '…'
+                      : doProfileChamberGroups.length}
+                    {' / '}
+                    {selectedDoProfile.chamber_limit != null
+                      ? selectedDoProfile.chamber_limit
+                      : '—'}{' '}
+                    limit
+                  </Text>
+                  <View style={styles.doProfileClientTapRow}>
+                    <TouchableOpacity
+                      style={[styles.doProfileClientTapChip, styles.doProfileClientTapActive]}
+                      onPress={() => openDoClientList('active')}
+                      activeOpacity={0.85}
+                      disabled={doProfileAssignLoading}
+                    >
+                      <Text style={[styles.doProfileClientTapText, { color: '#059669' }]}>
+                        {doProfileAssignLoading ? '…' : doProfileClientCounts.active} active
+                      </Text>
+                      <Ionicons name="chevron-forward" size={14} color="#059669" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.doProfileClientTapChip, styles.doProfileClientTapInactive]}
+                      onPress={() => openDoClientList('inactive')}
+                      activeOpacity={0.85}
+                      disabled={doProfileAssignLoading}
+                    >
+                      <Text style={[styles.doProfileClientTapText, { color: '#64748b' }]}>
+                        {doProfileAssignLoading ? '…' : doProfileClientCounts.notActive} not active
+                      </Text>
+                      <Ionicons name="chevron-forward" size={14} color="#64748b" />
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
                 <View style={styles.doProfileCard}>
@@ -5810,6 +5930,61 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                           />
                         </View>
                       ))}
+                      <View style={styles.doProfileField}>
+                        <Text style={styles.doProfileLabel}>Chamber Limit</Text>
+                        <TextInput
+                          style={styles.doProfileInput}
+                          value={String(doProfileForm.chamber_limit ?? '')}
+                          onChangeText={(t) =>
+                            setDoProfileForm((p) => ({
+                              ...p,
+                              chamber_limit: String(t || '').replace(/[^\d]/g, '')
+                            }))
+                          }
+                          keyboardType="number-pad"
+                          maxLength={2}
+                          placeholder="e.g. 4"
+                          placeholderTextColor="#94a3b8"
+                        />
+                      </View>
+                      <View style={styles.doProfileRow}>
+                        <Text style={styles.doProfileLabel}>Chambers assigned</Text>
+                        <Text style={styles.doProfileValue}>
+                          {doProfileAssignLoading
+                            ? '…'
+                            : String(doProfileChamberGroups.length)}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.doProfileRow}
+                        onPress={() => openDoClientList('active')}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.doProfileLabel}>Active clients</Text>
+                        <View style={styles.doProfileValueWithChevron}>
+                          <Text style={styles.doProfileValue}>
+                            {doProfileAssignLoading
+                              ? '…'
+                              : String(doProfileClientCounts.active)}
+                          </Text>
+                          <Ionicons name="chevron-forward" size={14} color="#94a3b8" />
+                        </View>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.doProfileRow}
+                        onPress={() => openDoClientList('inactive')}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.doProfileLabel}>Not active clients</Text>
+                        <View style={styles.doProfileValueWithChevron}>
+                          <Text style={styles.doProfileValue}>
+                            {doProfileAssignLoading
+                              ? '…'
+                              : String(doProfileClientCounts.notActive)}
+                          </Text>
+                          <Ionicons name="chevron-forward" size={14} color="#94a3b8" />
+                        </View>
+                      </TouchableOpacity>
                       <View style={styles.doProfileRow}>
                         <Text style={styles.doProfileLabel}>Email</Text>
                         <Text style={styles.doProfileValue}>
@@ -5832,20 +6007,68 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                       </TouchableOpacity>
                     </>
                   ) : (
-                    [
-                      ['Full name', selectedDoProfile.full_name || selectedDoProfile.name],
-                      ['Email', selectedDoProfile.email],
-                      ['Phone', selectedDoProfile.phone_no],
-                      ['Warehouse', selectedDoProfile.warehouse_name],
-                      ['Warehouse code', selectedDoProfile.warehouse_code]
-                    ]
-                      .filter(([, v]) => v != null && String(v).trim() !== '')
-                      .map(([label, value]) => (
-                        <View key={label} style={styles.doProfileRow}>
-                          <Text style={styles.doProfileLabel}>{label}</Text>
-                          <Text style={styles.doProfileValue}>{String(value)}</Text>
+                    <>
+                      {[
+                        ['Full name', selectedDoProfile.full_name || selectedDoProfile.name],
+                        ['Email', selectedDoProfile.email],
+                        ['Phone', selectedDoProfile.phone_no],
+                        ['Warehouse', selectedDoProfile.warehouse_name],
+                        ['Warehouse code', selectedDoProfile.warehouse_code],
+                        [
+                          'Chamber Limit',
+                          selectedDoProfile.chamber_limit != null
+                            ? String(selectedDoProfile.chamber_limit)
+                            : '—'
+                        ],
+                        [
+                          'Chambers assigned',
+                          doProfileAssignLoading
+                            ? '…'
+                            : `${doProfileChamberGroups.length}${
+                                selectedDoProfile.chamber_limit != null
+                                  ? ` / ${selectedDoProfile.chamber_limit}`
+                                  : ''
+                              }`
+                        ]
+                      ]
+                        .filter(([, v]) => v != null && String(v).trim() !== '')
+                        .map(([label, value]) => (
+                          <View key={label} style={styles.doProfileRow}>
+                            <Text style={styles.doProfileLabel}>{label}</Text>
+                            <Text style={styles.doProfileValue}>{String(value)}</Text>
+                          </View>
+                        ))}
+                      <TouchableOpacity
+                        style={styles.doProfileRow}
+                        onPress={() => openDoClientList('active')}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.doProfileLabel}>Active clients</Text>
+                        <View style={styles.doProfileValueWithChevron}>
+                          <Text style={[styles.doProfileValue, { color: '#059669' }]}>
+                            {doProfileAssignLoading
+                              ? '…'
+                              : String(doProfileClientCounts.active)}
+                          </Text>
+                          <Ionicons name="chevron-forward" size={14} color="#059669" />
                         </View>
-                      ))
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.doProfileRow}
+                        onPress={() => openDoClientList('inactive')}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.doProfileLabel}>Not active clients</Text>
+                        <View style={styles.doProfileValueWithChevron}>
+                          <Text style={[styles.doProfileValue, { color: '#64748b' }]}>
+                            {doProfileAssignLoading
+                              ? '…'
+                              : String(doProfileClientCounts.notActive)}
+                          </Text>
+                          <Ionicons name="chevron-forward" size={14} color="#94a3b8" />
+                        </View>
+                      </TouchableOpacity>
+                    </>
                   )}
                 </View>
 
@@ -5921,7 +6144,19 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                 {selectedDoProfile.warehouse_name ? (
                   <View style={styles.doProfileCard}>
                     <View style={styles.doProfileCardHead}>
-                      <Text style={styles.doProfileSectionTitle}>Chambers & clients</Text>
+                      <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                        <Text style={styles.doProfileSectionTitle}>Chambers & clients</Text>
+                        <Text style={[styles.doProfileHeroRole, { textAlign: 'left', marginTop: 2 }]}>
+                          Assigned {doProfileAssignLoading ? '…' : doProfileChamberGroups.length}
+                          {selectedDoProfile.chamber_limit != null
+                            ? ` / ${selectedDoProfile.chamber_limit} limit`
+                            : ''}
+                          {' · '}
+                          {doProfileAssignLoading
+                            ? '…'
+                            : `${doProfileClientCounts.active} active · ${doProfileClientCounts.notActive} not active`}
+                        </Text>
+                      </View>
                       <TouchableOpacity onPress={loadDoProfileAssignments}>
                         <Ionicons name="refresh" size={16} color="#003580" />
                       </TouchableOpacity>
@@ -5942,14 +6177,24 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                             </View>
                           </View>
                           <Text style={styles.doProfileClientsLine}>
-                            Active ({ch.active.length}):{' '}
-                            {ch.active.length ? ch.active.join(' · ') : '—'}
+                            Active clients ({ch.active.length}):{' '}
+                            {ch.active.length
+                              ? ch.active
+                                  .map((c) => (typeof c === 'string' ? c : c?.name))
+                                  .filter(Boolean)
+                                  .join(' · ')
+                              : '—'}
                           </Text>
                           <Text
                             style={[styles.doProfileClientsLine, { color: '#94a3b8' }]}
                           >
-                            Deactive ({ch.deactive.length}):{' '}
-                            {ch.deactive.length ? ch.deactive.join(' · ') : '—'}
+                            Not active clients ({ch.deactive.length}):{' '}
+                            {ch.deactive.length
+                              ? ch.deactive
+                                  .map((c) => (typeof c === 'string' ? c : c?.name))
+                                  .filter(Boolean)
+                                  .join(' · ')
+                              : '—'}
                           </Text>
                         </View>
                       ))
@@ -5968,6 +6213,7 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                 <TouchableOpacity
                   style={styles.doProfileDoneBtn}
                   onPress={() => {
+                    setDoClientListModal({ visible: false, mode: 'active' });
                     setDoProfileEditing(false);
                     setSelectedDoProfile(null);
                   }}
@@ -5977,6 +6223,134 @@ export default function SubAdminScreen({ user, token, apiUrl, onLogout }) {
                 </TouchableOpacity>
               </ScrollView>
             ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={doClientListModal.visible && !!selectedDoProfile}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDoClientListModal({ visible: false, mode: 'active' })}
+      >
+        <View style={styles.doClientSheetOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setDoClientListModal({ visible: false, mode: 'active' })}
+          />
+          <View style={styles.doClientHalfSheet}>
+            <View style={styles.doProfileHandle} />
+            <View style={styles.detailHead}>
+              <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                <Text style={styles.detailTitle} numberOfLines={1}>
+                  {doClientListModal.mode === 'inactive'
+                    ? 'Not active clients'
+                    : 'Active clients'}
+                </Text>
+                <Text style={styles.excelSub} numberOfLines={1}>
+                  {selectedDoProfile?.name || 'Data Operator'}
+                  {' · '}
+                  {doClientListModal.mode === 'inactive'
+                    ? doProfileClientCounts.notActive
+                    : doProfileClientCounts.active}{' '}
+                  client
+                  {(doClientListModal.mode === 'inactive'
+                    ? doProfileClientCounts.notActive
+                    : doProfileClientCounts.active) === 1
+                    ? ''
+                    : 's'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setDoClientListModal({ visible: false, mode: 'active' })}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={22} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.doClientHalfSheetScroll}
+              contentContainerStyle={{ paddingBottom: 8 }}
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+            >
+              {(() => {
+                const rows =
+                  doClientListModal.mode === 'inactive'
+                    ? doProfileClientLists.inactive
+                    : doProfileClientLists.active;
+                if (doProfileAssignLoading) {
+                  return (
+                    <ActivityIndicator color="#003580" style={{ marginVertical: 24 }} />
+                  );
+                }
+                if (!rows.length) {
+                  return (
+                    <Text style={styles.doProfileEmptyAssign}>
+                      {doClientListModal.mode === 'inactive'
+                        ? 'No not-active clients for this DO.'
+                        : 'No active clients for this DO.'}
+                    </Text>
+                  );
+                }
+                return rows.map((row, idx) => (
+                  <View
+                    key={row.key}
+                    style={[
+                      styles.doClientListRow,
+                      idx === rows.length - 1 && { borderBottomWidth: 0 }
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.doClientListDot,
+                        {
+                          backgroundColor:
+                            doClientListModal.mode === 'inactive' ? '#94a3b8' : '#059669'
+                        }
+                      ]}
+                    />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.doClientListName} numberOfLines={2}>
+                        {row.client}
+                      </Text>
+                      <Text style={styles.doClientListMeta} numberOfLines={1}>
+                        {row.chamber}
+                        {row.type ? ` · ${row.type}` : ''}
+                      </Text>
+                      <Text style={styles.doClientListDates} numberOfLines={3}>
+                        Assigned: {formatAssignmentDate(row.assignedAt) || '—'}
+                        {'\n'}
+                        {doClientListModal.mode === 'inactive'
+                          ? `Disabled: ${formatAssignmentDate(row.disabledAt) || '—'} (DO request → SA)`
+                          : 'Disabled: —'}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.doClientListStatus,
+                        {
+                          color:
+                            doClientListModal.mode === 'inactive' ? '#64748b' : '#059669'
+                        }
+                      ]}
+                    >
+                      {doClientListModal.mode === 'inactive' ? 'Not active' : 'Active'}
+                    </Text>
+                  </View>
+                ));
+              })()}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.doProfileDoneBtn, { marginTop: 8, marginBottom: 0 }]}
+              onPress={() => setDoClientListModal({ visible: false, mode: 'active' })}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.doProfileDoneBtnText}>Close</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -7582,6 +7956,34 @@ const styles = StyleSheet.create({
     color: '#64748b',
     marginTop: 4
   },
+  doProfileClientTapRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 10
+  },
+  doProfileClientTapChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1
+  },
+  doProfileClientTapActive: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#a7f3d0'
+  },
+  doProfileClientTapInactive: {
+    backgroundColor: '#f1f5f9',
+    borderColor: '#e2e8f0'
+  },
+  doProfileClientTapText: {
+    fontSize: 12,
+    fontWeight: '800'
+  },
   doProfileCard: {
     backgroundColor: '#f8fafc',
     borderRadius: 12,
@@ -7688,6 +8090,74 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     flex: 1.4,
     textAlign: 'right'
+  },
+  doProfileValueWithChevron: {
+    flex: 1.4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 2
+  },
+  doClientSheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.45)',
+    justifyContent: 'flex-end'
+  },
+  doClientHalfSheet: {
+    height: '50%',
+    maxHeight: '50%',
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 12
+  },
+  doClientHalfSheetScroll: {
+    flex: 1,
+    minHeight: 0
+  },
+  doClientListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9'
+  },
+  doClientListDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4
+  },
+  doClientListName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0f172a'
+  },
+  doClientListMeta: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
+    marginTop: 2
+  },
+  doClientListDates: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#94a3b8',
+    marginTop: 4,
+    lineHeight: 14
+  },
+  doClientListStatus: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase'
   },
   doProfileStatRow: { flexDirection: 'row', gap: 8 },
   doProfileStatPill: {

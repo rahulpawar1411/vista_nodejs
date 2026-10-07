@@ -73,6 +73,7 @@ export default function SubAdminAdminPanel({
   const [doFormOpen, setDoFormOpen] = useState(false);
   const [editingDo, setEditingDo] = useState(null);
   const [doBusy, setDoBusy] = useState(false);
+  const [showDoPassword, setShowDoPassword] = useState(false);
   const [doForm, setDoForm] = useState({
     full_name: '',
     email: '',
@@ -353,6 +354,7 @@ export default function SubAdminAdminPanel({
 
   const openCreateDo = () => {
     setEditingDo(null);
+    setShowDoPassword(false);
     setDoForm({
       full_name: '',
       email: '',
@@ -367,6 +369,7 @@ export default function SubAdminAdminPanel({
 
   const openEditDo = (op) => {
     setEditingDo(op);
+    setShowDoPassword(false);
     setDoForm({
       full_name: op.full_name || '',
       email: op.email || '',
@@ -381,14 +384,17 @@ export default function SubAdminAdminPanel({
 
   const saveDo = async () => {
     if (!apiUrl || !token) return;
+    const chamberLimit = parseInt(doForm.chamber_limit, 10);
+    if (!Number.isFinite(chamberLimit) || chamberLimit < 1) {
+      Alert.alert('Chamber Limit', 'Enter a valid chamber limit (1 or more).');
+      return;
+    }
     const payload = {
       full_name: doForm.full_name.trim(),
       email: doForm.email.trim().toLowerCase(),
       phone_no: doForm.phone_no.trim(),
       warehouse_name: doForm.warehouse_name.trim(),
-      chamber_limit: editingDo
-        ? parseInt(editingDo.chamber_limit, 10) || 4
-        : 4
+      chamber_limit: chamberLimit
     };
     if (!payload.full_name || !payload.email || !payload.phone_no || !payload.warehouse_name) {
       Alert.alert('Missing fields', 'Name, email, phone and warehouse are required.');
@@ -1085,8 +1091,7 @@ export default function SubAdminAdminPanel({
             {[
               ['full_name', 'Full name'],
               ['email', 'Email'],
-              ['phone_no', 'Phone (10 digit)'],
-              ['password', editingDo ? 'New password (optional)' : 'Password']
+              ['phone_no', 'Phone (10 digit)']
             ].map(([key, label]) => (
               <View key={key} style={styles.field}>
                 <Text style={styles.fieldLabel}>{label}</Text>
@@ -1096,12 +1101,40 @@ export default function SubAdminAdminPanel({
                   onChangeText={(t) => setDoForm((p) => ({ ...p, [key]: t }))}
                   autoCapitalize={key === 'email' ? 'none' : 'sentences'}
                   keyboardType={key === 'phone_no' ? 'number-pad' : 'default'}
-                  secureTextEntry={key === 'password'}
                   placeholder={label}
                   placeholderTextColor="#94a3b8"
                 />
               </View>
             ))}
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>
+                {editingDo ? 'New password (optional)' : 'Password'}
+              </Text>
+              <View style={styles.passwordWrap}>
+                <TextInput
+                  style={[styles.input, styles.passwordInput]}
+                  value={String(doForm.password || '')}
+                  onChangeText={(t) => setDoForm((p) => ({ ...p, password: t }))}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  secureTextEntry={!showDoPassword}
+                  placeholder={editingDo ? 'New password (optional)' : 'Password'}
+                  placeholderTextColor="#94a3b8"
+                />
+                <TouchableOpacity
+                  style={styles.passwordEyeBtn}
+                  onPress={() => setShowDoPassword((v) => !v)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel={showDoPassword ? 'Hide password' : 'Show password'}
+                >
+                  <Ionicons
+                    name={showDoPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={18}
+                    color="#64748b"
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
             <Text style={styles.fieldLabel}>Warehouse</Text>
             {activeWarehouses.length === 0 ? (
               <Text style={styles.helpText}>
@@ -1164,6 +1197,23 @@ export default function SubAdminAdminPanel({
                 )}
               </View>
             )}
+
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>Chamber Limit</Text>
+              <TextInput
+                style={styles.input}
+                value={String(doForm.chamber_limit ?? '')}
+                onChangeText={(t) => {
+                  const digits = String(t || '').replace(/[^\d]/g, '');
+                  setDoForm((p) => ({ ...p, chamber_limit: digits }));
+                }}
+                keyboardType="number-pad"
+                maxLength={2}
+                placeholder="e.g. 4"
+                placeholderTextColor="#94a3b8"
+              />
+            </View>
+
             <View style={styles.actionRow}>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.editBtn, { flex: 1 }]}
@@ -1595,6 +1645,23 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     backgroundColor: '#f8fafc',
     marginBottom: 6
+  },
+  passwordWrap: {
+    position: 'relative',
+    justifyContent: 'center'
+  },
+  passwordInput: {
+    paddingRight: 40,
+    marginBottom: 6
+  },
+  passwordEyeBtn: {
+    position: 'absolute',
+    right: 10,
+    top: 0,
+    bottom: 6,
+    width: 28,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   pickChip: {
     paddingHorizontal: 10,
