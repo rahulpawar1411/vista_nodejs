@@ -32,7 +32,21 @@ export function splitLogPhotoPaths(value) {
     .filter((s) => s && s !== 'null' && s !== 'undefined');
 }
 
-/** Map a Cloudinary CRM asset URL back to local uploads/crm/… path. */
+function uploadBasename(rel) {
+  const s = String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  const parts = s.split('/');
+  return parts[parts.length - 1] || s;
+}
+
+function folderFromFilename(name) {
+  const n = String(name || '').toLowerCase();
+  if (n.startsWith('outward-')) return 'outward_images';
+  if (n.startsWith('inward-')) return 'inward_images';
+  if (n.startsWith('sensor-temp-')) return 'daily_temp_monitor_images';
+  return null;
+}
+
+/** Map a Cloudinary CRM asset URL back to local uploads/<file> (flat). */
 export function cloudinaryUrlToUploadsPath(raw) {
   if (raw == null) return null;
   const value = String(raw).trim();
@@ -46,10 +60,11 @@ export function cloudinaryUrlToUploadsPath(raw) {
   ) {
     return null;
   }
-  return `uploads/crm/${rest}`;
+  const file = uploadBasename(rest);
+  return file ? `uploads/${file}` : `uploads/crm/${rest}`;
 }
 
-/** Map uploads/… path → Cloudinary CDN URL (same public_id / folder). */
+/** Map uploads/… path → Cloudinary CDN URL (nested or flat prefix). */
 export function uploadsPathToCloudinaryUrl(raw, cloudName = 'de9ba8bpk') {
   if (raw == null) return null;
   const value = String(raw).trim().replace(/\\/g, '/').replace(/^\/+/, '');
@@ -57,9 +72,18 @@ export function uploadsPathToCloudinaryUrl(raw, cloudName = 'de9ba8bpk') {
   const match = value.match(
     /^uploads\/(?:crm\/)?(outward_images|inward_images|daily_temp_monitor_images)\/(.+)$/i
   );
-  if (!match || !match[2]) return null;
-  const file = String(match[2]).replace(/\.(jpe?g|png|webp|gif)$/i, '');
-  return `https://res.cloudinary.com/${cloudName}/image/upload/crm/${match[1]}/${file}`;
+  if (match && match[2]) {
+    const file = String(match[2]).replace(/\.(jpe?g|png|webp|gif)$/i, '');
+    return `https://res.cloudinary.com/${cloudName}/image/upload/crm/${match[1]}/${file}`;
+  }
+  if (/^uploads\/[^/]+$/i.test(value)) {
+    const name = uploadBasename(value);
+    const folder = folderFromFilename(name);
+    if (!folder) return null;
+    const file = name.replace(/\.(jpe?g|png|webp|gif)$/i, '');
+    return `https://res.cloudinary.com/${cloudName}/image/upload/crm/${folder}/${file}`;
+  }
+  return null;
 }
 
 /** Default Cloudinary cloud (production photos live here, not on Render disk). */
@@ -100,38 +124,33 @@ export function resolveLogImageUrl(raw, baseUrl, folderHint = 'daily_temp_monito
   }
 
   value = value.replace(/\\/g, '/').replace(/^\/+/, '');
+  const name = uploadBasename(value);
 
-  // Relative uploads/… → Cloudinary public URL first
+  // Relative uploads/… → prefer flat local URL (CDN only as optional later)
   if (value.startsWith('uploads/')) {
-    const cdn = uploadsPathToCloudinaryUrl(value, DEFAULT_CLOUDINARY_CLOUD);
-    if (cdn) return cdn;
-    if (!base) return null;
-    return `${base}/${value}`;
+    if (!base) {
+      return uploadsPathToCloudinaryUrl(value, DEFAULT_CLOUDINARY_CLOUD);
+    }
+    // Flat: uploads/<file> or legacy nested → always try flat basename first via candidates
+    if (/^uploads\/[^/]+$/i.test(value)) return `${base}/${value}`;
+    return `${base}/uploads/${name}`;
   }
 
   if (!base) {
-    const asUploads = `uploads/crm/${folderHint}/${value}`.replace(/\/+/g, '/');
-    const cdn = uploadsPathToCloudinaryUrl(
-      value.includes('/') ? `uploads/${value}` : asUploads,
-      DEFAULT_CLOUDINARY_CLOUD
-    );
+    const flat = `uploads/${name}`;
+    const cdn = uploadsPathToCloudinaryUrl(flat, DEFAULT_CLOUDINARY_CLOUD);
     if (cdn) return cdn;
     return null;
   }
 
   if (!value.includes('/')) {
-    const relative = `uploads/crm/${folderHint}/${value}`;
-    const cdn = uploadsPathToCloudinaryUrl(relative, DEFAULT_CLOUDINARY_CLOUD);
-    if (cdn) return cdn;
-    return `${base}/uploads/${folderHint}/${value}`;
+    return `${base}/uploads/${value}`;
   }
 
   const maybeUploads = value.startsWith('crm/') ? `uploads/${value}` : value;
-  const cdn = uploadsPathToCloudinaryUrl(
-    maybeUploads.startsWith('uploads/') ? maybeUploads : `uploads/${maybeUploads}`,
-    DEFAULT_CLOUDINARY_CLOUD
-  );
-  if (cdn) return cdn;
+  if (maybeUploads.startsWith('uploads/')) {
+    return `${base}/uploads/${name}`;
+  }
   return `${base}/${value}`;
 }
 
@@ -160,16 +179,35 @@ export function resolveLogImageUrlCandidates(raw, baseUrl, folderHint = 'daily_t
     return out;
   }
 
+  const name = uploadBasename(normalized);
+
   if (normalized.startsWith('uploads/')) {
+    if (base) {
+      push(`${base}/uploads/${name}`);
+      if (!/^uploads\/[^/]+$/i.test(normalized)) push(`${base}/${normalized}`);
+      push(`${base}/uploads/${folderHint}/${name}`);
+      push(`${base}/uploads/crm/${folderHint}/${name}`);
+    }
+    push(uploadsPathToCloudinaryUrl(`uploads/${name}`, DEFAULT_CLOUDINARY_CLOUD));
     push(uploadsPathToCloudinaryUrl(normalized, DEFAULT_CLOUDINARY_CLOUD));
-    if (base) push(`${base}/${normalized}`);
   } else if (!normalized.includes('/')) {
-    const relative = `uploads/crm/${folderHint}/${normalized}`;
-    push(uploadsPathToCloudinaryUrl(relative, DEFAULT_CLOUDINARY_CLOUD));
-    if (base) push(`${base}/uploads/${folderHint}/${normalized}`);
+    if (base) {
+      push(`${base}/uploads/${normalized}`);
+      push(`${base}/uploads/${folderHint}/${normalized}`);
+      push(`${base}/uploads/crm/${folderHint}/${normalized}`);
+    }
+    push(
+      uploadsPathToCloudinaryUrl(
+        `uploads/${folderHint}/${normalized}`,
+        DEFAULT_CLOUDINARY_CLOUD
+      )
+    );
   } else {
     push(resolveLogImageUrl(value, baseUrl, folderHint));
-    if (base) push(`${base}/${normalized}`);
+    if (base) {
+      push(`${base}/uploads/${name}`);
+      push(`${base}/${normalized}`);
+    }
   }
 
   return out;
