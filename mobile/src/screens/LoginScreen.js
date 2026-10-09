@@ -32,7 +32,7 @@ export default function LoginScreen({
   onLoginSuccess,
   apiUrl,
   onUpdateApiUrl,
-  productionApiUrl = 'https://reeferon-crm-backend.onrender.com',
+  productionApiUrl = 'https://api.yourdomain.com',
   localApiUrl = 'http://192.168.64.129:5000'
 }) {
   // Input form state variables
@@ -43,9 +43,7 @@ export default function LoginScreen({
   const [apiUrlInput, setApiUrlInput] = useState(apiUrl);
   const [showSettings, setShowSettings] = useState(false);
 
-  const isProduction =
-    (apiUrl || '').toLowerCase().includes('onrender.com') ||
-    (apiUrl || '').toLowerCase().startsWith('https://');
+  const isProduction = (apiUrl || '').toLowerCase().startsWith('https://');
 
   useEffect(() => {
     setApiUrlInput(apiUrl);

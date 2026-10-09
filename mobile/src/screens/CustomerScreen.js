@@ -67,7 +67,7 @@ import {
 
 const TouchableOpacity = FastTouchable;
 
-const PRODUCTION_API_URL = 'https://reeferon-crm-backend.onrender.com';
+const PRODUCTION_API_URL = 'https://api.yourdomain.com';
 const BOTTOM_SHEET_MAX_H = Math.round(Dimensions.get('window').height * 0.5);
 const BOTTOM_SHEET_SCROLL_H = Math.max(180, BOTTOM_SHEET_MAX_H - 130);
 const INOUT_DONUT_IN = '#5B9AF5';

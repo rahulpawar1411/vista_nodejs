@@ -1,0 +1,15 @@
+---
+description: Backend API, uploads, env, and deploy conventions
+globs: backend/**/*
+alwaysApply: false
+---
+
+# Backend rules
+
+- Keep Express routes thin; business logic in `controllers/` / `utils/`.
+- Photos: `UPLOAD_TO_CLOUDINARY=false` → save under flat `uploads/<filename>`; DB stores `uploads/<filename>`.
+- Content-hash dedupe is enabled — identical bytes reuse an existing file.
+- Never commit real secrets (`.env`). Use `.env.example` for keys only.
+- Serve SPA from `../frontend/dist`.
+- Prefer MySQL via `config/db.js` pool; avoid holding connections open.
+- Deploy target is **VPS** (PM2 + Nginx). Do not add Render/Vercel/Railway config.

@@ -7,8 +7,8 @@
 //   sub_admin   → SubAdminScreen   — overview, permissions, DO masters
 //
 // API URL:
-//   - Local: getLocalApiUrl() → http://LAN-IP:5000 (same DB as Render)
-//   - Live:  PRODUCTION_API_URL (Render)
+//   - Local: getLocalApiUrl() → http://LAN-IP:5000
+//   - Live:  PRODUCTION_API_URL (VPS HTTPS — set in app.json / EXPO_PUBLIC_API_URL)
 //   - FALLBACK_LOCAL_IP: update if Wi‑Fi IPv4 changes (ipconfig)
 // ====================================================================
 
@@ -32,7 +32,7 @@ function readProductionApiUrl() {
   const raw =
     process.env.EXPO_PUBLIC_API_URL ||
     Constants.expoConfig?.extra?.apiUrl ||
-    'https://reeferon-crm-backend.onrender.com';
+    'https://api.yourdomain.com';
   return String(raw)
     .trim()
     .replace(/\/$/, '')
@@ -98,25 +98,25 @@ export function getLocalApiUrl() {
 }
 
 /**
- * WHAT: Checks if a URL points at the hosted (HTTPS / Render) backend.
+ * WHAT: Checks if a URL points at the hosted (HTTPS / VPS) backend.
  * WHY: Local URLs need refresh on Wi‑Fi change; production URLs stay stable.
- * HOW: Looks for onrender.com or https:// prefix after trimming.
+ * HOW: Treats https:// as production (and ignores legacy Render/Railway hosts).
  */
 export function isProductionApiUrl(url) {
   if (!url || typeof url !== 'string') return false;
   const u = url.trim().toLowerCase();
-  return u.includes('onrender.com') || u.startsWith('https://');
+  return u.startsWith('https://');
 }
 
 /**
  * WHAT: Detects a local development server URL (HTTP on LAN IP or port 5000).
  * WHY: Stored api_url may be stale after DHCP — App refreshes it on session restore.
- * HOW: Excludes HTTPS/Render, then matches localhost, 10.0.2.2, or private IPv4 patterns.
+ * HOW: Excludes HTTPS, then matches localhost, 10.0.2.2, or private IPv4 patterns.
  */
 export function isLocalApiUrl(url) {
   if (!url || typeof url !== 'string') return false;
   const u = url.trim().toLowerCase();
-  if (u.includes('onrender.com') || u.startsWith('https://')) return false;
+  if (u.startsWith('https://')) return false;
   return (
     u.startsWith('http://') &&
     (/:\s*5000\/?$/.test(u) ||
@@ -154,9 +154,9 @@ export default function App() {
 
         if (storedApiUrl && storedApiUrl.trim()) {
           let nextApi = storedApiUrl.replace(/\/$/, '').replace(/\/api$/i, '');
-          if (/railway\.app/i.test(nextApi)) {
+          if (/railway\.app|onrender\.com|vercel\.app/i.test(nextApi)) {
             nextApi = PRODUCTION_API_URL;
-            console.log('[api] dropped unused Railway URL → Render');
+            console.log('[api] dropped legacy host → VPS PRODUCTION_API_URL');
           }
           if (isLocalApiUrl(nextApi)) {
             nextApi = getLocalApiUrl();
@@ -254,14 +254,16 @@ export default function App() {
     }
   };
 
-  /** WHAT: Updates which backend the app talks to. WHY: Dev/test against local or Render. HOW: Normalize URL and persist. */
+  /** WHAT: Updates which backend the app talks to. WHY: Dev/test against local or VPS. HOW: Normalize URL and persist. */
   const handleUpdateApiUrl = async (newUrl) => {
     try {
       const clean = String(newUrl || '')
         .trim()
         .replace(/\/$/, '')
         .replace(/\/api$/i, '');
-      const next = /railway\.app/i.test(clean) ? PRODUCTION_API_URL : clean;
+      const next = /railway\.app|onrender\.com|vercel\.app/i.test(clean)
+        ? PRODUCTION_API_URL
+        : clean;
       setApiUrl(next);
       await AsyncStorage.setItem('api_url', next);
     } catch (err) {

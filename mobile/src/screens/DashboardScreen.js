@@ -141,7 +141,7 @@ import {
   clearExpoPushToken
 } from '../services/expoPushRegistration';
 
-const PRODUCTION_API_URL = 'https://reeferon-crm-backend.onrender.com';
+const PRODUCTION_API_URL = 'https://api.yourdomain.com';
 
 function pickDoLogImage(log) {
   if (!log) return null;

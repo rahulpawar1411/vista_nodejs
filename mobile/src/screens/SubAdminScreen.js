@@ -93,7 +93,7 @@ function isCatalogActive(row) {
 
 const TouchableOpacity = FastTouchable;
 
-const PRODUCTION_API_URL = 'https://reeferon-crm-backend.onrender.com';
+const PRODUCTION_API_URL = 'https://api.yourdomain.com';
 
 function resolveImageUrl(raw, baseUrl, folderHint = 'daily_temp_monitor_images') {
   return resolveLogImageUrl(raw, baseUrl, folderHint);

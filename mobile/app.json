@@ -91,7 +91,7 @@
       "expo-font"
     ],
     "extra": {
-      "apiUrl": "https://reeferon-crm-backend.onrender.com",
+      "apiUrl": "https://api.yourdomain.com",
       "cloudinaryCloudName": "de9ba8bpk",
       "eas": {
         "projectId": "05781cac-f64a-4635-a343-5613ba0302eb"

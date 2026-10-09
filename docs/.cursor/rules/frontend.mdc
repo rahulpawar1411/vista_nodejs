@@ -1,0 +1,14 @@
+---
+description: Frontend UI, CSS, and media conventions
+globs: frontend/**/*
+alwaysApply: false
+---
+
+# Frontend rules
+
+- Reuse global dashboard CSS variables/classes from `index.css` / `TempMonitor.css`.
+- Grid cells with nowrap: `min-width: 0` and `overflow: hidden`.
+- Breakpoints: `1150px` → 2 cols, `480px` → 1 col.
+- Persist active menu/tabs in `localStorage`.
+- `VITE_PREFER_CLOUDINARY=false` — load `/uploads` first; use `FallbackImg` for fallbacks.
+- Deploy target is **VPS**: build with `npm run build`, upload only `frontend/dist`. No Vercel/Netlify.
